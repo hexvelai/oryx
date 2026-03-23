@@ -15,11 +15,11 @@ export function AIPanel({ provider, compact }: AIPanelProps) {
   const panel = panels[provider];
 
   return (
-    <div className={`flex flex-col h-full bg-background border border-border rounded-xl overflow-hidden ${compact ? "" : ""}`}>
+    <div className="flex flex-col h-full bg-card border border-border rounded-xl overflow-hidden shadow-sm">
       {/* Header */}
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-card/50">
+      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
         <div
-          className="w-2.5 h-2.5 rounded-full animate-pulse-glow"
+          className="w-2 h-2 rounded-full"
           style={{ backgroundColor: `hsl(var(--${model.color}))` }}
         />
         <div className="flex-1 min-w-0">
@@ -47,7 +47,6 @@ export function AIPanel({ provider, compact }: AIPanelProps) {
       <ChatInput
         onSend={(msg) => sendMessage(msg, provider)}
         placeholder={`Ask ${model.name}...`}
-        accent={model.color}
         disabled={panel.isTyping}
       />
     </div>
