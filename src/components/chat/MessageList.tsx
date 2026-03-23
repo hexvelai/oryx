@@ -54,8 +54,8 @@ function MessageBubble({ message, showProviderBadge }: { message: ChatMessage; s
       <div
         className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
           isUser
-            ? "bg-secondary text-secondary-foreground"
-            : "bg-card border border-border text-card-foreground"
+            ? "bg-secondary text-foreground"
+            : "bg-card border border-border text-foreground"
         }`}
       >
         {!isUser && showProviderBadge && provider && (
@@ -72,7 +72,7 @@ function MessageBubble({ message, showProviderBadge }: { message: ChatMessage; s
             </span>
           </div>
         )}
-        <div className="whitespace-pre-wrap overflow-wrap-break-word">
+        <div className="whitespace-pre-wrap break-words text-pretty">
           {message.content.split("**").map((part, i) =>
             i % 2 === 1 ? (
               <strong key={i} className="font-semibold">{part}</strong>

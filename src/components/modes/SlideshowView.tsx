@@ -2,7 +2,6 @@ import { useChatContext } from "@/context/ChatContext";
 import { AIPanel } from "@/components/chat/AIPanel";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AI_MODELS } from "@/types/ai";
-import type { AIProvider } from "@/types/ai";
 
 export function SlideshowView() {
   const { activeProviders, currentSlide, setCurrentSlide } = useChatContext();
@@ -27,9 +26,9 @@ export function SlideshowView() {
             <button
               key={p}
               onClick={() => setCurrentSlide(i)}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all active:scale-95 ${
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all active:scale-[0.97] ${
                 i === currentSlide % activeProviders.length
-                  ? "bg-card border border-border"
+                  ? "bg-card border border-border shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -53,13 +52,13 @@ export function SlideshowView() {
         <>
           <button
             onClick={() => setCurrentSlide((currentSlide - 1 + activeProviders.length) % activeProviders.length)}
-            className="absolute left-1 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-card/80 border border-border text-muted-foreground hover:text-foreground transition-colors active:scale-95"
+            className="absolute left-1 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-card border border-border text-muted-foreground hover:text-foreground transition-colors active:scale-95 shadow-sm"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
             onClick={() => setCurrentSlide((currentSlide + 1) % activeProviders.length)}
-            className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-card/80 border border-border text-muted-foreground hover:text-foreground transition-colors active:scale-95"
+            className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-card border border-border text-muted-foreground hover:text-foreground transition-colors active:scale-95 shadow-sm"
           >
             <ChevronRight className="w-4 h-4" />
           </button>

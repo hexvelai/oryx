@@ -1,7 +1,7 @@
 import { useChatContext } from "@/context/ChatContext";
 import { AI_MODELS } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
-import { Zap, Network, LayoutGrid, Presentation, Crown, Vote, CheckCircle2 } from "lucide-react";
+import { Network, LayoutGrid, Presentation, Crown, Vote } from "lucide-react";
 
 export function AppHeader() {
   const { mode, setMode, activeProviders, toggleProvider } = useChatContext();
@@ -15,19 +15,16 @@ export function AppHeader() {
   ];
 
   return (
-    <header className="flex items-center justify-between px-5 py-3 border-b border-border bg-card/30 backdrop-blur-sm">
+    <header className="flex items-center justify-between px-5 py-3 border-b border-border bg-card">
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Zap className="w-5 h-5 text-ai-master" />
-          <h1 className="font-semibold text-base tracking-tight text-foreground">
-            Synapse
-          </h1>
-        </div>
+        <h1 className="font-semibold text-base tracking-tight text-foreground">
+          Synapse
+        </h1>
         <span className="text-xs text-muted-foreground hidden sm:block">AI Orchestrator</span>
       </div>
 
       {/* Mode switcher */}
-      <nav className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
+      <nav className="flex items-center gap-0.5 bg-muted rounded-lg p-1">
         {modes.map(m => {
           const Icon = m.icon;
           const active = mode === m.id;
@@ -35,9 +32,9 @@ export function AppHeader() {
             <button
               key={m.id}
               onClick={() => setMode(m.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 active:scale-[0.97] ${
                 active
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
               title={m.desc}
@@ -58,9 +55,9 @@ export function AppHeader() {
             <button
               key={p}
               onClick={() => toggleProvider(p)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200 active:scale-95 border ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200 active:scale-[0.97] border ${
                 active
-                  ? "border-border bg-card"
+                  ? "border-border bg-card shadow-sm"
                   : "border-transparent opacity-40 hover:opacity-70"
               }`}
             >

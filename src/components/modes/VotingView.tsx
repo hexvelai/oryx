@@ -12,7 +12,7 @@ export function VotingView() {
   return (
     <div className="flex flex-col h-full max-w-3xl mx-auto w-full">
       <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
-        <Vote className="w-4 h-4 text-ai-master" />
+        <Vote className="w-4 h-4 text-primary" />
         <span className="font-medium text-sm">Voting Mode</span>
         <span className="text-xs text-muted-foreground">— AIs propose and vote on solutions</span>
       </div>
@@ -38,16 +38,16 @@ export function VotingView() {
               style={{ animationDelay: `${i * 100}ms` }}
             >
               <div
-                className={`p-4 rounded-xl border ${
-                  isWinner ? "border-ai-master/50 bg-card" : "border-border bg-card/50"
+                className={`p-4 rounded-xl border transition-shadow ${
+                  isWinner ? "border-primary/30 bg-primary/5 shadow-sm" : "border-border bg-card"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <div
-                      className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold"
+                      className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-semibold"
                       style={{
-                        backgroundColor: `hsl(var(--${model.color}) / 0.15)`,
+                        backgroundColor: `hsl(var(--${model.color}) / 0.12)`,
                         color: `hsl(var(--${model.color}))`,
                       }}
                     >
@@ -57,7 +57,7 @@ export function VotingView() {
                       {model.name}
                     </span>
                     {isWinner && (
-                      <div className="flex items-center gap-1 text-ai-master text-xs">
+                      <div className="flex items-center gap-1 text-primary text-xs font-medium">
                         <Trophy className="w-3 h-3" /> Winner
                       </div>
                     )}
@@ -67,7 +67,7 @@ export function VotingView() {
                     {result.votes.length} votes
                   </div>
                 </div>
-                <p className="text-sm text-foreground leading-relaxed mb-2">{result.response}</p>
+                <p className="text-sm text-foreground leading-relaxed mb-2 text-pretty">{result.response}</p>
                 {result.votes.length > 0 && (
                   <div className="flex items-center gap-1.5 mt-2">
                     <span className="text-xs text-muted-foreground">Voted by:</span>

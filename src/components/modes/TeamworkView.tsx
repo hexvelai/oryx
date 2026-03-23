@@ -10,7 +10,7 @@ export function TeamworkView() {
   return (
     <div className="flex flex-col h-full max-w-3xl mx-auto w-full">
       <div className="flex items-center gap-2 px-5 py-3 border-b border-border">
-        <Network className="w-4 h-4 text-ai-master" />
+        <Network className="w-4 h-4 text-primary" />
         <span className="font-medium text-sm">Teamwork Mode</span>
         <span className="text-xs text-muted-foreground">— AIs collaborate in real-time</span>
       </div>
@@ -28,9 +28,9 @@ export function TeamworkView() {
             <div key={msg.id} className="animate-fade-up" style={{ animationDelay: `${i * 80}ms` }}>
               <div className="flex items-start gap-3">
                 <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 mt-0.5"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5"
                   style={{
-                    backgroundColor: `hsl(var(--${fromModel.color}) / 0.15)`,
+                    backgroundColor: `hsl(var(--${fromModel.color}) / 0.12)`,
                     color: `hsl(var(--${fromModel.color}))`,
                   }}
                 >
@@ -44,7 +44,7 @@ export function TeamworkView() {
                     <ArrowRight className="w-3 h-3 text-muted-foreground" />
                     <span className="text-xs text-muted-foreground">{toLabel}</span>
                   </div>
-                  <p className="text-sm text-foreground leading-relaxed">{msg.content}</p>
+                  <p className="text-sm text-foreground leading-relaxed text-pretty">{msg.content}</p>
                 </div>
               </div>
             </div>
@@ -52,12 +52,12 @@ export function TeamworkView() {
         })}
 
         {finalMsg && (
-          <div className="animate-fade-up mt-6 p-4 rounded-xl border-2 border-ai-master/30 bg-card">
+          <div className="animate-fade-up mt-6 p-4 rounded-xl border border-primary/20 bg-primary/5">
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 rounded-full bg-ai-master" />
-              <span className="text-xs font-medium text-ai-master">Final Consensus</span>
+              <div className="w-2 h-2 rounded-full bg-primary" />
+              <span className="text-xs font-medium text-primary">Final Consensus</span>
             </div>
-            <p className="text-sm text-foreground leading-relaxed">
+            <p className="text-sm text-foreground leading-relaxed text-pretty">
               {finalMsg.content.replace("**Team Consensus:** ", "")}
             </p>
           </div>
