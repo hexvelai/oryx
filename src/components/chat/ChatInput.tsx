@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Send } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -40,8 +42,8 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled 
   };
 
   return (
-    <div className="flex items-end gap-2 p-3 border-t border-border bg-card">
-      <textarea
+    <div className="flex items-end gap-2 border-t border-border bg-background p-3">
+      <Textarea
         ref={inputRef}
         value={value}
         onChange={e => { setValue(e.target.value); handleInput(); }}
@@ -49,16 +51,17 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled 
         placeholder={placeholder}
         disabled={disabled}
         rows={1}
-        className="flex-1 bg-background border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-1 focus:ring-primary/40 transition-shadow"
-        style={{ maxHeight: 120 }}
+        className="min-h-0 flex-1 resize-none leading-relaxed"
+        style={{ maxHeight: 120, height: "auto" }}
       />
-      <button
+      <Button
+        size="icon"
         onClick={handleSubmit}
         disabled={!value.trim() || disabled}
-        className="shrink-0 p-2.5 rounded-lg bg-primary text-primary-foreground transition-all duration-150 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed hover:brightness-105"
+        className="shrink-0"
       >
         <Send className="w-4 h-4" />
-      </button>
+      </Button>
     </div>
   );
 }

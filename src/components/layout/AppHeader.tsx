@@ -1,75 +1,194 @@
+import { useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Plus, Presentation, Boxes } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { useChatContext } from "@/context/ChatContext";
 import { AI_MODELS } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
-import { Network, LayoutGrid, Presentation, Crown, Vote } from "lucide-react";
 
 export function AppHeader() {
-  const { mode, setMode, activeProviders, toggleProvider } = useChatContext();
+  const {
+    mode,
+    setMode,
+    availableProviders,
+    providerApiKeys,
+    setProviderApiKey,
+    setProviderEnabled,
+    parallelTargets,
+    setParallelTargets,
+  } = useChatContext();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [openParallel, setOpenParallel] = useState(false);
+  const [openProviders, setOpenProviders] = useState(false);
 
-  const modes = [
-    { id: "master" as const, label: "Nexus", icon: Crown, desc: "Smart router" },
-    { id: "split" as const, label: "Split", icon: LayoutGrid, desc: "Side by side" },
-    { id: "slideshow" as const, label: "Slide", icon: Presentation, desc: "One at a time" },
-    { id: "teamwork" as const, label: "Teamwork", icon: Network, desc: "AI collab" },
-    { id: "voting" as const, label: "Vote", icon: Vote, desc: "AI consensus" },
-  ];
+  const allProviders = useMemo(() => Object.keys(AI_MODELS) as AIProvider[], []);
+  const deepDivesActive = location.pathname === "/" || location.pathname.startsWith("/dive/");
+  const slideActive = location.pathname === "/playground" && mode === "slideshow";
+  const parallelActive = location.pathname === "/playground" && mode === "parallel";
 
   return (
-    <header className="flex items-center justify-between px-5 py-3 border-b border-border bg-card">
-      <div className="flex items-center gap-3">
-        <h1 className="font-semibold text-base tracking-tight text-foreground">
-          Synapse
-        </h1>
-        <span className="text-xs text-muted-foreground hidden sm:block">AI Orchestrator</span>
-      </div>
+    <>
+      <header className="sticky top-0 z-40 flex items-center justify-between border-b bg-background/80 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <Button
+          variant="ghost"
+          onClick={() => navigate("/")}
+          className="flex items-center gap-2 px-2"
+        >
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-xs font-semibold text-foreground ring-1 ring-border">
+            M
+          </div>
+          <div className="text-sm font-semibold tracking-tight">mozaic</div>
+        </Button>
 
-      {/* Mode switcher */}
-      <nav className="flex items-center gap-0.5 bg-muted rounded-lg p-1">
-        {modes.map(m => {
-          const Icon = m.icon;
-          const active = mode === m.id;
-          return (
-            <button
-              key={m.id}
-              onClick={() => setMode(m.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 active:scale-[0.97] ${
-                active
-                  ? "bg-card text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title={m.desc}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">{m.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+        <nav className="flex items-center gap-1">
+          <Button
+            variant={deepDivesActive ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => navigate("/")}
+          >
+            Deep Dives
+          </Button>
+          <Button
+            variant={slideActive ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => { setMode("slideshow"); navigate("/playground"); }}
+          >
+            <Presentation className="h-4 w-4" />
+            Slide
+          </Button>
+          <Button
+            variant={parallelActive ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setOpenParallel(true)}
+          >
+            <Boxes className="h-4 w-4" />
+            Parallel Mode
+          </Button>
+        </nav>
 
-      {/* Active AI toggles */}
-      <div className="flex items-center gap-1.5">
-        {(Object.keys(AI_MODELS) as AIProvider[]).map(p => {
-          const model = AI_MODELS[p];
-          const active = activeProviders.includes(p);
-          return (
-            <button
-              key={p}
-              onClick={() => toggleProvider(p)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200 active:scale-[0.97] border ${
-                active
-                  ? "border-border bg-card shadow-sm"
-                  : "border-transparent opacity-40 hover:opacity-70"
-              }`}
-            >
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: `hsl(var(--${model.color}))` }}
-              />
-              <span className="hidden lg:inline">{model.name}</span>
-            </button>
-          );
-        })}
-      </div>
-    </header>
+        <div className="flex items-center gap-2">
+          <Separator orientation="vertical" className="h-6" />
+          <Button variant="outline" size="sm" onClick={() => setOpenProviders(true)}>
+            <Plus className="h-4 w-4" />
+            Add AIs
+          </Button>
+        </div>
+      </header>
+
+      <Dialog open={openParallel} onOpenChange={setOpenParallel}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Parallel Mode</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">
+              Select which AIs to ask.
+            </div>
+            <div className="space-y-2">
+              {availableProviders.map(p => {
+                const model = AI_MODELS[p];
+                const checked = parallelTargets.includes(p);
+                return (
+                  <label
+                    key={p}
+                    className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2 cursor-pointer hover:bg-accent transition-colors"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={() => {
+                        setParallelTargets(checked ? parallelTargets.filter(x => x !== p) : [...parallelTargets, p]);
+                      }}
+                    />
+                    <div
+                      className="flex h-8 w-8 items-center justify-center rounded-md text-xs font-semibold"
+                      style={{ backgroundColor: `hsl(var(--${model.color}) / 0.18)`, color: `hsl(var(--${model.color}))` }}
+                    >
+                      {model.name.slice(0, 1)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-foreground">{model.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">{model.fullName}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setOpenParallel(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (parallelTargets.length === 0) return;
+                  setMode("parallel");
+                  navigate("/playground");
+                  setOpenParallel(false);
+                }}
+              >
+                Enter
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={openProviders} onOpenChange={setOpenProviders}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>AI Access</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">
+              Enable AIs and add API keys (stored locally in your browser).
+            </div>
+            <div className="space-y-2">
+              {allProviders.map(p => {
+                const model = AI_MODELS[p];
+                const enabled = availableProviders.includes(p);
+                const keyValue = providerApiKeys[p] ?? "";
+                return (
+                  <div key={p} className="space-y-2 rounded-lg border bg-card p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className="flex h-9 w-9 items-center justify-center rounded-md text-xs font-semibold"
+                          style={{ backgroundColor: `hsl(var(--${model.color}) / 0.18)`, color: `hsl(var(--${model.color}))` }}
+                        >
+                          {model.name.slice(0, 1)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-foreground">{model.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">{model.fullName}</div>
+                        </div>
+                      </div>
+                      <label className="flex items-center gap-2 text-sm text-foreground">
+                        <Checkbox checked={enabled} onCheckedChange={(v) => setProviderEnabled(p, Boolean(v))} />
+                        Enabled
+                      </label>
+                    </div>
+                    <Input
+                      value={keyValue}
+                      onChange={(e) => setProviderApiKey(p, e.target.value)}
+                      placeholder="OpenRouter API key"
+                      type="password"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button onClick={() => setOpenProviders(false)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

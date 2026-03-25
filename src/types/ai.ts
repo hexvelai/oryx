@@ -1,5 +1,5 @@
 export type AIProvider = "gpt" | "gemini" | "claude";
-export type AIMode = "split" | "slideshow" | "master" | "teamwork" | "voting";
+export type AIMode = "split" | "slideshow" | "teamwork" | "voting" | "parallel";
 
 export interface AIModel {
   id: AIProvider;
@@ -16,6 +16,17 @@ export interface ChatMessage {
   timestamp: number;
   provider?: AIProvider | "master";
   isShared?: boolean;
+  routingNote?: string;
+  autoRouted?: boolean;
+  reasoningTokens?: number;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: ChatMessage[];
 }
 
 export interface AIPanel {
@@ -40,26 +51,55 @@ export interface VoteResult {
   reasoning: string;
 }
 
+export interface SharedUpload {
+  id: string;
+  name: string;
+  type: string;
+  url: string;
+  createdAt: number;
+}
+
+export interface DeepDiveThread {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  type: "chat" | "vote" | "teamwork";
+  messages: ChatMessage[];
+  voteResults?: VoteResult[];
+  teamworkMessages?: TeamworkMessage[];
+}
+
+export interface DeepDive {
+  id: string;
+  title: string;
+  providers: AIProvider[];
+  createdAt: number;
+  updatedAt: number;
+  threads: DeepDiveThread[];
+  uploads: SharedUpload[];
+}
+
 export const AI_MODELS: Record<AIProvider, AIModel> = {
   gpt: {
     id: "gpt",
     name: "GPT",
-    fullName: "GPT-5",
+    fullName: "openai/gpt-oss-20b:free",
     color: "ai-gpt",
-    description: "Powerful reasoning and code generation",
+    description: "OpenRouter — GPT OSS 20B (free)",
   },
   gemini: {
     id: "gemini",
-    name: "Gemini",
-    fullName: "Gemini 3 Flash",
+    name: "Llama",
+    fullName: "meta-llama/llama-3.3-70b-instruct:free",
     color: "ai-gemini",
-    description: "Fast multimodal understanding",
+    description: "OpenRouter — Llama 3.3 70B Instruct (free)",
   },
   claude: {
     id: "claude",
-    name: "Claude",
-    fullName: "Claude 4 Sonnet",
+    name: "Nemotron",
+    fullName: "nvidia/nemotron-3-super-120b-a12b:free",
     color: "ai-claude",
-    description: "Nuanced analysis and writing",
+    description: "OpenRouter — Nemotron 3 Super 120B (free)",
   },
 };

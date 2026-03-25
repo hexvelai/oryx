@@ -3,6 +3,8 @@ import { useChatContext } from "@/context/ChatContext";
 import { MessageList } from "@/components/chat/MessageList";
 import { ChatInput } from "@/components/chat/ChatInput";
 import type { AIProvider } from "@/types/ai";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 interface AIPanelProps {
   provider: AIProvider;
@@ -10,16 +12,16 @@ interface AIPanelProps {
 }
 
 export function AIPanel({ provider, compact }: AIPanelProps) {
-  const { panels, sendMessage, sharedContext } = useChatContext();
+  const { getProviderMessages, providerIsTyping, sendMessage, sharedContext } = useChatContext();
   const model = AI_MODELS[provider];
-  const panel = panels[provider];
+  const messages = getProviderMessages(provider);
+  const isTyping = providerIsTyping[provider];
 
   return (
-    <div className="flex flex-col h-full bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-      {/* Header */}
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
+    <Card className="flex flex-col h-full overflow-hidden shadow-sm">
+      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border bg-background">
         <div
-          className="w-2 h-2 rounded-full"
+          className="h-2 w-2 rounded-full"
           style={{ backgroundColor: `hsl(var(--${model.color}))` }}
         />
         <div className="flex-1 min-w-0">
@@ -34,21 +36,19 @@ export function AIPanel({ provider, compact }: AIPanelProps) {
           )}
         </div>
         {sharedContext.length > 0 && (
-          <div className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+          <Badge variant="secondary" className="rounded-md">
             {sharedContext.length} shared
-          </div>
+          </Badge>
         )}
       </div>
 
-      {/* Messages */}
-      <MessageList messages={panel.messages} isTyping={panel.isTyping} />
+      <MessageList messages={messages} isTyping={isTyping} />
 
-      {/* Input */}
       <ChatInput
         onSend={(msg) => sendMessage(msg, provider)}
         placeholder={`Ask ${model.name}...`}
-        disabled={panel.isTyping}
+        disabled={isTyping}
       />
-    </div>
+    </Card>
   );
 }

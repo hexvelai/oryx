@@ -1,10 +1,10 @@
-import { ChatProvider, useChatContext } from "@/context/ChatContext";
+import { useChatContext } from "@/context/ChatContext";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AIPanel } from "@/components/chat/AIPanel";
-import { MasterPanel } from "@/components/modes/MasterPanel";
 import { TeamworkView } from "@/components/modes/TeamworkView";
 import { VotingView } from "@/components/modes/VotingView";
 import { SlideshowView } from "@/components/modes/SlideshowView";
+import { ParallelView } from "@/components/modes/ParallelView";
 
 function AppContent() {
   const { mode, activeProviders } = useChatContext();
@@ -13,8 +13,6 @@ function AppContent() {
     <div className="flex flex-col h-screen overflow-hidden">
       <AppHeader />
       <main className="flex-1 overflow-hidden">
-        {mode === "master" && <MasterPanel />}
-
         {mode === "split" && (
           <div
             className="grid h-full gap-3 p-3"
@@ -32,6 +30,7 @@ function AppContent() {
         )}
 
         {mode === "slideshow" && <SlideshowView />}
+        {mode === "parallel" && <ParallelView />}
         {mode === "teamwork" && <TeamworkView />}
         {mode === "voting" && <VotingView />}
       </main>
@@ -40,9 +39,5 @@ function AppContent() {
 }
 
 export default function Index() {
-  return (
-    <ChatProvider>
-      <AppContent />
-    </ChatProvider>
-  );
+  return <AppContent />;
 }
