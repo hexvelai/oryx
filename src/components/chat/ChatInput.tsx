@@ -42,7 +42,7 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled 
   };
 
   return (
-    <div className="flex items-end gap-2 border-t border-border bg-background p-3">
+    <div className="flex items-end gap-3 rounded-[24px] border border-border/80 bg-white/80 p-3 shadow-[0_1px_0_rgba(255,255,255,0.7)_inset] dark:bg-white/[0.04] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
       <Textarea
         ref={inputRef}
         value={value}
@@ -51,14 +51,14 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled 
         placeholder={placeholder}
         disabled={disabled}
         rows={1}
-        className="min-h-0 flex-1 resize-none leading-relaxed"
+        className="min-h-0 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm leading-7 shadow-none focus-visible:ring-0"
         style={{ maxHeight: 120, height: "auto" }}
       />
       <Button
         size="icon"
         onClick={handleSubmit}
         disabled={!value.trim() || disabled}
-        className="shrink-0"
+        className="h-11 w-11 shrink-0 rounded-full dark:bg-primary dark:text-primary-foreground"
       >
         <Send className="w-4 h-4" />
       </Button>

@@ -1,17 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useChatContext } from "@/context/ChatContext";
+import { useAction, useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
+import {
+  ChevronLeft,
+  MessageSquareText,
+  MoreHorizontal,
+  Scale,
+  Users2,
+} from "lucide-react";
 import { AI_MODELS } from "@/types/ai";
-import type { AIProvider, ChatMessage, DeepDiveThread } from "@/types/ai";
-import { ChatInput } from "@/components/chat/ChatInput";
+import type { AIProvider } from "@/types/ai";
+import { convexApi } from "@/lib/convex-api";
+import type { DeepDiveThreadRecord, DeepDiveUIMessage } from "@/lib/deep-dive-types";
+import { DEEP_DIVE_PROVIDERS } from "@/lib/deep-dive-types";
+import { ThreadChatPanel } from "@/components/deep-dive/ThreadChatPanel";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { MoreHorizontal, PanelRight, X } from "lucide-react";
 
 function startOfDay(ms: number) {
   const d = new Date(ms);
@@ -24,13 +32,21 @@ function groupLabel(updatedAt: number) {
   const diffDays = Math.floor((startOfDay(now) - startOfDay(updatedAt)) / (24 * 60 * 60 * 1000));
   if (diffDays <= 0) return "Today";
   if (diffDays === 1) return "Yesterday";
-  return "Last 7 days";
+  return "Earlier";
 }
 
 function truncateOneLine(s: string, max = 48) {
   const first = (s.split("\n")[0] ?? "").trim().replace(/\s+/g, " ");
   if (first.length <= max) return first || "Thread";
-  return `${first.slice(0, max - 1)}…`;
+  return `${first.slice(0, max - 1)}...`;
+}
+
+function getMessageText(message: DeepDiveUIMessage) {
+  return message.parts
+    .filter(part => part.type === "text" || part.type === "reasoning")
+    .map(part => part.text)
+    .join("\n")
+    .trim();
 }
 
 function renderRichText(content: string) {
@@ -47,54 +63,82 @@ function renderRichText(content: string) {
   );
 }
 
+function threadTypeCopy(type: DeepDiveThreadRecord["type"]) {
+  if (type === "vote") return { label: "Vote", detail: "Multiple models propose and score the best path." };
+  if (type === "teamwork") return { label: "Debate", detail: "Models collaborate in sequence and build on each other." };
+  return { label: "Thread", detail: "Direct conversation with routing and branching." };
+}
+
+function formatDateTime(ts: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(ts);
+}
+
 export default function DeepDive() {
   const navigate = useNavigate();
   const { diveId } = useParams();
-  const {
-    deepDives,
-    availableProviders,
-    activeThreadIdByDeepDive,
-    setActiveDeepDive,
-    setActiveThread,
-    createThread,
-    sendDeepDiveMessage,
-    addDeepDiveUploads,
-    removeDeepDiveUpload,
-    forkThreadFromMessages,
-    runVoteInThread,
-    runDebateInThread,
-  } = useChatContext();
+  const deepDive = useConvexQuery(convexApi.deepDives.get, diveId ? { diveId } : "skip");
+  const createThread = useConvexMutation(convexApi.deepDives.createThread);
+  const appendUserMessage = useConvexMutation(convexApi.deepDives.appendUserMessage);
+  const sendThreadMessage = useAction(convexApi.ai.sendThreadMessage);
+  const runVote = useAction(convexApi.ai.runVote);
+  const runDebate = useAction(convexApi.ai.runDebate);
 
-  const deepDive = useMemo(() => deepDives.find(d => d.id === diveId) ?? null, [deepDives, diveId]);
-  const activeThreadId = deepDive ? activeThreadIdByDeepDive[deepDive.id] : "";
+  const [activeThreadId, setActiveThreadId] = useState<string>("");
+  const [askDialog, setAskDialog] = useState<{ open: boolean; seed: DeepDiveUIMessage[]; target: AIProvider } | null>(null);
+  const [debateDialog, setDebateDialog] = useState<{ open: boolean; seed: DeepDiveUIMessage[] } | null>(null);
+  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(DEEP_DIVE_PROVIDERS);
+  const [creatingThread, setCreatingThread] = useState(false);
+  const [runningVote, setRunningVote] = useState(false);
+  const [runningDebate, setRunningDebate] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+
   const activeThread = useMemo(() => {
     if (!deepDive) return null;
-    return deepDive.threads.find(t => t.id === activeThreadId) ?? deepDive.threads[0] ?? null;
+    if (activeThreadId) {
+      const match = deepDive.threads.find(thread => thread.id === activeThreadId);
+      if (match) return match;
+    }
+    return deepDive.threads[0] ?? null;
   }, [activeThreadId, deepDive]);
 
-  useEffect(() => {
-    if (deepDive) setActiveDeepDive(deepDive.id);
-  }, [deepDive, setActiveDeepDive]);
+  const isLoading = Boolean(diveId) && deepDive === undefined;
 
-  const [uploadsOpen, setUploadsOpen] = useState(true);
+  if (!diveId) return null;
 
-  const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeThread?.messages.length, activeThread?.type, activeThread?.voteResults?.length, activeThread?.teamworkMessages?.length]);
-
-  const [askDialog, setAskDialog] = useState<{ open: boolean; seed: ChatMessage[]; target: AIProvider } | null>(null);
-  const [debateDialog, setDebateDialog] = useState<{ open: boolean; seed: ChatMessage[] } | null>(null);
-  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(
-    deepDive.providers.filter(p => availableProviders.includes(p)),
-  );
-
-  if (!deepDive || !diveId) {
+  if (isLoading) {
     return (
-      <div className="flex flex-col min-h-screen items-center justify-center bg-background px-6">
-        <div className="text-center space-y-3">
-          <div className="text-lg font-semibold text-foreground">Deep Dive not found</div>
-          <Link to="/" className="text-sm text-primary underline">Back to dashboard</Link>
+      <div className="app-canvas min-h-screen bg-background">
+        <AppHeader />
+        <div className="mx-auto flex min-h-[70vh] max-w-4xl items-center justify-center px-6">
+          <div className="surface-panel rounded-[28px] px-8 py-10 text-center text-muted-foreground">
+            Loading Deep Dive...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!deepDive) {
+    return (
+      <div className="app-canvas min-h-screen bg-background">
+        <AppHeader />
+        <div className="mx-auto flex min-h-[70vh] max-w-4xl items-center justify-center px-6">
+          <div className="surface-panel rounded-[28px] px-8 py-10 text-center">
+            <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Deep Dives</div>
+            <div className="mt-4 text-3xl text-foreground">Deep Dive not found</div>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              This workspace does not exist in the database yet.
+            </p>
+            <Link to="/" className="mt-6 inline-flex text-sm font-medium text-foreground underline underline-offset-4">
+              Back to dashboard
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -103,555 +147,554 @@ export default function DeepDive() {
   const threadsByGroup = deepDive.threads
     .slice()
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .reduce<Record<string, DeepDiveThread[]>>((acc, t) => {
-      const label = groupLabel(t.updatedAt);
-      acc[label] = acc[label] ? [...acc[label], t] : [t];
+    .reduce<Record<string, DeepDiveThreadRecord[]>>((acc, thread) => {
+      const label = groupLabel(thread.updatedAt);
+      acc[label] = acc[label] ? [...acc[label], thread] : [thread];
       return acc;
     }, {});
 
-  const newThread = () => {
-    const id = createThread(deepDive.id, { title: "New thread", type: "chat", seedMessages: [] });
-    setActiveThread(deepDive.id, id);
-  };
-
-  const seedUpTo = (idx: number) => {
-    const msgs = activeThread?.messages ?? [];
-    return msgs.slice(0, idx + 1);
-  };
-
-  const deepDiveProviders = deepDive.providers.filter(p => availableProviders.includes(p));
-  const participantOrder = deepDiveProviders.length ? deepDiveProviders : (availableProviders.length ? availableProviders : (["gpt", "gemini", "claude"] as AIProvider[]));
-
+  const participantOrder = deepDive.providers.length ? deepDive.providers : [...DEEP_DIVE_PROVIDERS];
   const defaultOther = (provider?: AIProvider) => {
-    const order = participantOrder;
-    if (!provider) return order[0] ?? "gpt";
-    const idx = order.indexOf(provider);
-    if (idx === -1) return order[0] ?? "gpt";
-    return order[(idx + 1) % order.length] ?? (order[0] ?? "gpt");
+    if (!provider) return participantOrder[0] ?? "gpt";
+    const idx = participantOrder.indexOf(provider);
+    if (idx === -1) return participantOrder[0] ?? "gpt";
+    return participantOrder[(idx + 1) % participantOrder.length] ?? (participantOrder[0] ?? "gpt");
   };
 
-  const askOtherAI = (seedMessages: ChatMessage[], provider?: AIProvider) => {
+  const newThread = async () => {
+    if (!deepDive) return;
+    setCreatingThread(true);
+    try {
+      const threadId = await createThread({ deepDiveId: deepDive.id, title: "New thread", type: "chat", seedMessages: [] });
+      setActiveThreadId(String(threadId));
+    } finally {
+      setCreatingThread(false);
+    }
+  };
+
+  const askOtherAI = (seedMessages: DeepDiveUIMessage[], provider?: AIProvider) => {
     const next = defaultOther(provider);
     setAskDialog({ open: true, seed: seedMessages, target: next });
   };
 
-  const confirmAskOther = () => {
+  const confirmAskOther = async () => {
     if (!askDialog) return;
-    const seedMessages = askDialog.seed;
-    const { threadId } = forkThreadFromMessages({
-      deepDiveId: deepDive.id,
-      type: "chat",
-      title: `Ask ${AI_MODELS[askDialog.target].name}: ${truncateOneLine(seedMessages[seedMessages.length - 1]?.content ?? "")}`,
-      seedMessages,
-    });
-    setAskDialog(null);
-    sendDeepDiveMessage(deepDive.id, threadId, `@${askDialog.target} Please respond to the context above.`);
+    setCreatingThread(true);
+    try {
+      const threadId = await createThread({
+        deepDiveId: deepDive.id,
+        type: "chat",
+        title: `Ask ${AI_MODELS[askDialog.target].name}: ${truncateOneLine(getMessageText(askDialog.seed[askDialog.seed.length - 1] ?? { parts: [] } as DeepDiveUIMessage))}`,
+        seedMessages: askDialog.seed,
+      });
+      setActiveThreadId(String(threadId));
+      setAskDialog(null);
+    } finally {
+      setCreatingThread(false);
+    }
   };
 
-  const callVote = (seedMessages: ChatMessage[]) => {
-    const subject = truncateOneLine(seedMessages[seedMessages.length - 1]?.content ?? "", 60);
-    const { threadId } = forkThreadFromMessages({
-      deepDiveId: deepDive.id,
-      type: "vote",
-      title: `Vote: ${subject}`,
-      seedMessages,
-    });
-    runVoteInThread(deepDive.id, threadId, subject);
+  const callVote = async (seedMessages: DeepDiveUIMessage[]) => {
+    const subject = truncateOneLine(getMessageText(seedMessages[seedMessages.length - 1] ?? { parts: [] } as DeepDiveUIMessage), 60);
+    setCreatingThread(true);
+    try {
+      const threadId = await createThread({
+        deepDiveId: deepDive.id,
+        type: "vote",
+        title: `Vote: ${subject}`,
+        seedMessages,
+      });
+      setActiveThreadId(String(threadId));
+      setRunningVote(true);
+      await runVote({
+        threadId: String(threadId),
+        prompt: subject,
+        participants: deepDive.providers,
+      });
+    } finally {
+      setCreatingThread(false);
+      setRunningVote(false);
+    }
   };
 
-  const startDebate = (seedMessages: ChatMessage[]) => {
+  const startDebate = (seedMessages: DeepDiveUIMessage[]) => {
     setDebateParticipants(participantOrder);
     setDebateDialog({ open: true, seed: seedMessages });
   };
 
-  const toggleDebater = (p: AIProvider) => {
-    if (!availableProviders.includes(p)) return;
-    setDebateParticipants(prev => (prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]));
+  const toggleDebater = (provider: AIProvider) => {
+    setDebateParticipants(prev => (prev.includes(provider) ? prev.filter(x => x !== provider) : [...prev, provider]));
   };
 
-  const confirmDebate = () => {
+  const confirmDebate = async () => {
     if (!debateDialog) return;
-    const seedMessages = debateDialog.seed;
-    const subject = truncateOneLine(seedMessages[seedMessages.length - 1]?.content ?? "", 60);
-    const participants = (debateParticipants.length ? debateParticipants : participantOrder).filter(p => availableProviders.includes(p));
-    const { threadId } = forkThreadFromMessages({
-      deepDiveId: deepDive.id,
-      type: "teamwork",
-      title: `Debate: ${subject}`,
-      seedMessages,
-    });
-    setDebateDialog(null);
-    runDebateInThread(deepDive.id, threadId, subject, participants);
+    const subject = truncateOneLine(getMessageText(debateDialog.seed[debateDialog.seed.length - 1] ?? { parts: [] } as DeepDiveUIMessage), 60);
+    const participants = debateParticipants.length ? debateParticipants : participantOrder;
+    setCreatingThread(true);
+    try {
+      const threadId = await createThread({
+        deepDiveId: deepDive.id,
+        type: "teamwork",
+        title: `Debate: ${subject}`,
+        seedMessages: debateDialog.seed,
+      });
+      setActiveThreadId(String(threadId));
+      setDebateDialog(null);
+      setRunningDebate(true);
+      await runDebate({
+        threadId: String(threadId),
+        prompt: subject,
+        participants,
+      });
+    } finally {
+      setCreatingThread(false);
+      setRunningDebate(false);
+    }
   };
 
-  const onFilePick = (files: FileList | null) => {
-    if (!files) return;
-    addDeepDiveUploads(deepDive.id, Array.from(files));
+  const handleSendMessage = async (text: string) => {
+    if (!activeThread) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    setChatError(null);
+    setSendingMessage(true);
+    try {
+      await appendUserMessage({ threadId: activeThread.id, text: trimmed });
+      await sendThreadMessage({ threadId: activeThread.id });
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "Failed to send message");
+    } finally {
+      setSendingMessage(false);
+    }
   };
 
-  const renderMessage = (message: ChatMessage, idx: number) => {
-    const isUser = message.role === "user";
-    const provider = message.provider as AIProvider | undefined;
-    const model = provider ? AI_MODELS[provider] : null;
-    return (
-      <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-        <div className="max-w-[85%]">
-          {!isUser && model && (
-            <div className="text-xs font-medium mb-1" style={{ color: `hsl(var(--${model.color}))` }}>
-              {model.name}
-            </div>
-          )}
-          <div
-            className={`relative group rounded-lg px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
-              isUser ? "bg-secondary text-foreground" : "bg-card border border-border text-foreground"
-            }`}
-          >
-            {!isUser && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-1.5 right-1.5 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                    aria-label="Message actions"
-                  >
-                    <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-52 p-1" align="end">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => askOtherAI(seedUpTo(idx), provider)}
-                    className="w-full justify-start"
-                  >
-                    Ask {AI_MODELS[defaultOther(provider)].name}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => callVote(seedUpTo(idx))}
-                    className="w-full justify-start"
-                  >
-                    Call a vote
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => startDebate(seedUpTo(idx))}
-                    className="w-full justify-start"
-                  >
-                    Start a debate
-                  </Button>
-                </PopoverContent>
-              </Popover>
-            )}
-            {renderRichText(message.content)}
-          </div>
-          {!isUser && message.routingNote && (
-            <div className="mt-1 text-[12px]" style={{ color: "#7a8aaa" }}>
-              {message.routingNote}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
+  const activeType = threadTypeCopy(activeThread?.type ?? "chat");
   const contextMessages = activeThread?.messages ?? [];
-
   const voteResults = activeThread?.voteResults ?? [];
   const teamworkMessages = activeThread?.teamworkMessages ?? [];
-
-  const voteWinner = voteResults.length
-    ? [...voteResults].sort((a, b) => b.votes.length - a.votes.length)[0]
-    : null;
+  const voteWinner = voteResults.length ? [...voteResults].sort((a, b) => b.votes.length - a.votes.length)[0] : null;
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-background">
+    <div className="app-canvas min-h-screen bg-background">
       <AppHeader />
-      <main className="flex-1 overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-background">
-          <div className="flex items-center gap-3 min-w-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate("/")}
-              className="h-auto px-2 text-muted-foreground hover:text-foreground"
-            >
-              Deep Dives
-            </Button>
-            <Separator orientation="vertical" className="h-4" />
-            <div className="min-w-0">
-              <div className="font-semibold text-sm text-foreground truncate">{deepDive.title}</div>
-              <div className="mt-1 flex items-center gap-1.5">
-                {deepDive.providers.map(p => (
-                  <div
-                    key={p}
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-semibold ring-1 ring-border"
-                    style={{ backgroundColor: `hsl(var(--${AI_MODELS[p].color}) / 0.18)`, color: `hsl(var(--${AI_MODELS[p].color}))` }}
-                  >
-                    {AI_MODELS[p].name.slice(0, 1)}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setUploadsOpen(v => !v)}
-          >
-            <PanelRight className="h-4 w-4" />
-            Uploads
-          </Button>
-        </div>
 
-        <div className="flex-1 overflow-hidden flex">
-        <aside className="w-[240px] bg-muted/40 border-r border-border px-3 py-3 overflow-y-auto scrollbar-thin">
+      <main className="grid w-full grid-cols-[290px_minmax(0,1fr)] gap-0 pb-0 pt-0">
+        <aside className="flex min-h-[calc(100vh-81px)] flex-col border-r border-border/70 bg-[rgba(250,246,240,0.78)] px-4 py-6 backdrop-blur-xl dark:bg-[rgba(14,17,24,0.9)]">
+          <div className="flex items-start justify-between gap-3 px-2 pt-2">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Navigation</div>
+              <div className="mt-2 text-xl text-foreground">Threads</div>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="rounded-full px-3 text-muted-foreground">
+              <ChevronLeft className="h-4 w-4" />
+              Back
+            </Button>
+          </div>
+
           <Button
             variant="outline"
             size="sm"
             onClick={newThread}
-            className="w-full justify-start"
+            className="mt-5 rounded-full border-border/80 bg-white/70 dark:bg-white/[0.06]"
+            disabled={creatingThread}
           >
-            New Thread
+            <MessageSquareText className="h-4 w-4" />
+            New thread
           </Button>
 
-          <div className="mt-4 space-y-4">
+          <div className="mt-5 flex-1 overflow-y-auto scrollbar-thin pr-1">
             {Object.entries(threadsByGroup).map(([label, threads]) => (
-              <div key={label}>
-                <div className="text-[11px] tracking-wide text-muted-foreground uppercase mb-1.5">
-                  {label}
-                </div>
-                <div className="space-y-1">
-                  {threads.map(t => (
-                    <button
-                      key={t.id}
-                      onClick={() => setActiveThread(deepDive.id, t.id)}
-                      className={`w-full text-left text-[13px] px-2 py-1.5 truncate rounded-md transition-colors ${
-                        t.id === activeThreadId ? "bg-background text-foreground" : "text-foreground/80 hover:text-foreground hover:bg-accent/60"
-                      }`}
-                    >
-                      {t.title}
-                    </button>
-                  ))}
+              <div key={label} className="mb-5">
+                <div className="px-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+                <div className="mt-2 space-y-2">
+                  {threads.map(thread => {
+                    const isActive = thread.id === activeThread?.id;
+                    const meta = threadTypeCopy(thread.type);
+                    return (
+                      <button
+                        key={thread.id}
+                        type="button"
+                        onClick={() => setActiveThreadId(thread.id)}
+                        className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+                          isActive
+                            ? "border-border bg-white shadow-sm dark:bg-white/[0.07] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]"
+                            : "border-transparent bg-transparent hover:border-border/70 hover:bg-white/50 dark:hover:bg-white/[0.04]"
+                        }`}
+                      >
+                        <div className="text-sm font-medium text-foreground">{thread.title}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{meta.label}</div>
+                        <div className="mt-3 text-xs text-muted-foreground">
+                          Updated {formatDateTime(thread.updatedAt)}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ))}
           </div>
         </aside>
 
-        <div className="flex-1 overflow-hidden flex">
-          <div className="flex-1 overflow-hidden">
-            <div className="flex flex-col h-full max-w-[720px] mx-auto w-full">
-              <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-3">
-                {activeThread?.type === "chat" && (
-                  <>
-                    {contextMessages.length === 0 && (
-                      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                        Start a thread…
-                      </div>
-                    )}
-                    {contextMessages.map(renderMessage)}
-                    <div ref={endRef} />
-                  </>
-                )}
+        <section className="flex min-h-[calc(100vh-81px)] flex-col bg-[rgba(255,255,255,0.42)] dark:bg-[rgba(10,12,18,0.48)]">
+          <div className="border-b border-border/70 bg-[rgba(255,255,255,0.6)] px-8 py-4 backdrop-blur-xl dark:bg-[rgba(18,21,29,0.82)]">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Deep Dive</div>
+                <h1 className="mt-2 text-[40px] leading-none text-foreground">{deepDive.title}</h1>
+              </div>
 
-                {activeThread?.type === "vote" && (
-                  <>
+              <div className="flex flex-wrap gap-2">
+                {deepDive.providers.map(provider => (
+                  <div
+                    key={provider}
+                    className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-white/80 px-3 py-1 text-xs dark:bg-white/[0.06]"
+                  >
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                    />
+                    <span>{AI_MODELS[provider].name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b border-border/70 bg-[rgba(255,255,255,0.42)] px-8 py-3.5 dark:bg-[rgba(14,17,24,0.72)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{activeType.label}</div>
+                  <div className="mt-1.5 text-[18px] text-foreground">{activeThread?.title ?? "Thread"}</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary" className="rounded-full border border-border/70 bg-white/75 px-3 py-1 text-xs text-foreground dark:bg-white/[0.06]">
+                    {contextMessages.length} messages
+                  </Badge>
+                  {activeThread?.type !== "chat" && (
+                    <Badge variant="secondary" className="rounded-full border border-border/70 bg-white/75 px-3 py-1 text-xs text-foreground dark:bg-white/[0.06]">
+                      Derived from context
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {!activeThread ? null : activeThread.type === "chat" ? (
+              <ThreadChatPanel
+                key={activeThread.id}
+                thread={activeThread}
+                defaultOther={defaultOther}
+                onAskOther={askOtherAI}
+                onVote={callVote}
+                onDebate={startDebate}
+                onSend={handleSendMessage}
+                isSending={sendingMessage}
+                errorMessage={chatError}
+              />
+            ) : (
+              <div className="flex-1 overflow-y-auto scrollbar-thin px-8 py-6">
+                {activeThread.type === "vote" && (
+                  <div className="space-y-6">
                     {contextMessages.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="text-xs text-muted-foreground">Context</div>
-                        <div className="space-y-2">
-                          {contextMessages.slice(-6).map(renderMessage)}
+                      <section className="rounded-[24px] border border-border/70 bg-white/55 p-4 dark:bg-white/[0.04]">
+                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                          <Scale className="h-3.5 w-3.5" />
+                          Context snapshot
                         </div>
-                      </div>
+                        <div className="mt-4 space-y-3">
+                          {contextMessages.map((message, idx) => {
+                            const provider = message.metadata?.provider as AIProvider | undefined;
+                            const model = provider ? AI_MODELS[provider] : null;
+                            const text = getMessageText(message);
+                            const isUser = message.role === "user";
+                            return (
+                              <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+                                <div className="max-w-[88%]">
+                                  {!isUser && model && (
+                                    <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
+                                      <span>{model.name}</span>
+                                    </div>
+                                  )}
+                                  <div className={`rounded-[22px] px-4 py-3 text-sm leading-7 shadow-sm ${isUser ? "bg-[hsl(var(--user-bubble))]" : "border border-border/70 bg-white/78 dark:bg-white/[0.05]"}`}>
+                                    {renderRichText(text)}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
                     )}
-                    <div className="mt-4 space-y-4">
+
+                    <section className="space-y-4">
                       {voteResults.length === 0 && (
-                        <div className="flex items-center justify-center h-24 text-muted-foreground text-sm">
-                          AIs are deliberating…
+                        <div className="rounded-[24px] border border-border/70 bg-white/60 px-6 py-8 text-center text-sm text-muted-foreground dark:bg-white/[0.04]">
+                          {runningVote ? "Gathering proposals and votes..." : "No vote results yet."}
                         </div>
                       )}
-                      {voteResults.map(r => {
-                        const model = AI_MODELS[r.provider];
-                        const isWinner = voteWinner?.provider === r.provider;
-                        const seed: ChatMessage[] = [
+
+                      {voteResults.map(result => {
+                        const model = AI_MODELS[result.provider];
+                        const isWinner = voteWinner?.provider === result.provider;
+                        const seed: DeepDiveUIMessage[] = [
                           ...contextMessages,
-                          { id: `vote-${activeThread?.id ?? "thread"}-${r.provider}`, role: "assistant", content: r.response, timestamp: Date.now(), provider: r.provider },
+                          {
+                            id: `vote-${activeThread.id}-${result.provider}`,
+                            role: "assistant",
+                            metadata: { provider: result.provider, createdAt: Date.now() },
+                            parts: [{ type: "text", text: result.response }],
+                          },
                         ];
+
                         return (
-                          <div key={r.provider} className={`relative group border border-border bg-card rounded-lg p-4 ${isWinner ? "ring-2 ring-primary/20" : ""}`}>
+                          <div
+                            key={result.provider}
+                            className={`group relative rounded-[24px] border p-5 ${
+                              isWinner ? "border-primary/20 bg-[rgba(255,255,255,0.88)] shadow-sm dark:bg-[rgba(34,38,47,0.92)] dark:shadow-[0_18px_44px_rgba(0,0,0,0.25)]" : "border-border/70 bg-white/68 dark:bg-white/[0.05]"
+                            }`}
+                          >
                             <Popover>
                               <PopoverTrigger asChild>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  className="absolute right-3 top-3 h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
                                   aria-label="Message actions"
                                 >
-                                  <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+                                  <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                                 </Button>
                               </PopoverTrigger>
                               <PopoverContent className="w-52 p-1" align="end">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => askOtherAI(seed, r.provider)}
-                                  className="w-full justify-start"
-                                >
-                                  Ask {AI_MODELS[defaultOther(r.provider)].name}
+                                <Button variant="ghost" size="sm" onClick={() => askOtherAI(seed, result.provider)} className="w-full justify-start">
+                                  Ask {AI_MODELS[defaultOther(result.provider)].name}
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => callVote(seed)}
-                                  className="w-full justify-start"
-                                >
+                                <Button variant="ghost" size="sm" onClick={() => callVote(seed)} className="w-full justify-start">
                                   Call a vote
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => startDebate(seed)}
-                                  className="w-full justify-start"
-                                >
+                                <Button variant="ghost" size="sm" onClick={() => startDebate(seed)} className="w-full justify-start">
                                   Start a debate
                                 </Button>
                               </PopoverContent>
                             </Popover>
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-sm font-medium" style={{ color: `hsl(var(--${model.color}))` }}>
-                                {model.name}
+
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold"
+                                  style={{ backgroundColor: `hsl(var(--${model.color}) / 0.14)`, color: `hsl(var(--${model.color}))` }}
+                                >
+                                  {model.name.slice(0, 1)}
+                                </div>
+                                <div>
+                                  <div className="text-sm font-medium text-foreground">{model.name}</div>
+                                  <div className="text-xs text-muted-foreground">{result.votes.length} votes</div>
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground">
-                                {r.votes.length} vote{r.votes.length === 1 ? "" : "s"}
-                              </div>
+                              {isWinner && (
+                                <Badge className="rounded-full bg-primary px-3 py-1 text-primary-foreground">Leading</Badge>
+                              )}
                             </div>
-                            <div className="mt-2 text-sm text-foreground">{r.response}</div>
-                            {r.votes.length > 0 && (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {r.votes.map(v => (
+
+                            <div className="mt-4 text-sm leading-7 text-foreground">{result.response}</div>
+
+                            {result.votes.length > 0 && (
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                {result.votes.map(voter => (
                                   <Badge
-                                    key={v}
+                                    key={voter}
                                     variant="secondary"
-                                    className="rounded-md"
-                                    style={{
-                                      backgroundColor: `hsl(var(--${AI_MODELS[v].color}) / 0.1)`,
-                                      color: `hsl(var(--${AI_MODELS[v].color}))`,
-                                    }}
+                                    className="rounded-full border border-border/70 bg-white/75 px-3 py-1 dark:bg-white/[0.06]"
+                                    style={{ color: `hsl(var(--${AI_MODELS[voter].color}))` }}
                                   >
-                                    {AI_MODELS[v].name}
+                                    {AI_MODELS[voter].name}
                                   </Badge>
                                 ))}
                               </div>
                             )}
-                            <div className="mt-2 text-xs text-muted-foreground italic">{r.reasoning}</div>
+
+                            {result.reasoning && (
+                              <div className="mt-4 text-xs italic leading-6 text-muted-foreground">{result.reasoning}</div>
+                            )}
                           </div>
                         );
                       })}
-                    </div>
-                    <div ref={endRef} />
-                  </>
+                    </section>
+                  </div>
                 )}
 
-                {activeThread?.type === "teamwork" && (
-                  <>
+                {activeThread.type === "teamwork" && (
+                  <div className="space-y-6">
                     {contextMessages.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="text-xs text-muted-foreground">Context</div>
-                        <div className="space-y-2">
-                          {contextMessages.slice(-6).map(renderMessage)}
+                      <section className="rounded-[24px] border border-border/70 bg-white/55 p-4 dark:bg-white/[0.04]">
+                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                          <Users2 className="h-3.5 w-3.5" />
+                          Context snapshot
                         </div>
-                      </div>
+                        <div className="mt-4 space-y-3">
+                          {contextMessages.map(message => {
+                            const provider = message.metadata?.provider as AIProvider | undefined;
+                            const model = provider ? AI_MODELS[provider] : null;
+                            const text = getMessageText(message);
+                            const isUser = message.role === "user";
+                            return (
+                              <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+                                <div className="max-w-[88%]">
+                                  {!isUser && model && (
+                                    <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
+                                      <span>{model.name}</span>
+                                    </div>
+                                  )}
+                                  <div className={`rounded-[22px] px-4 py-3 text-sm leading-7 shadow-sm ${isUser ? "bg-[hsl(var(--user-bubble))]" : "border border-border/70 bg-white/78 dark:bg-white/[0.05]"}`}>
+                                    {renderRichText(text)}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
                     )}
-                    <div className="mt-4 space-y-3">
+
+                    <section className="space-y-4">
                       {teamworkMessages.length === 0 && (
-                        <div className="flex items-center justify-center h-24 text-muted-foreground text-sm">
-                          Debate in progress…
+                        <div className="rounded-[24px] border border-border/70 bg-white/60 px-6 py-8 text-center text-sm text-muted-foreground dark:bg-white/[0.04]">
+                          {runningDebate ? "The debate is underway..." : "No debate messages yet."}
                         </div>
                       )}
-                      {teamworkMessages.map((m, idx) => {
-                        const from = AI_MODELS[m.from];
-                        const toLabel = m.to === "all" ? "everyone" : AI_MODELS[m.to as AIProvider]?.name;
-                        const seed: ChatMessage[] = [
+
+                      {teamworkMessages.map((message, idx) => {
+                        const from = AI_MODELS[message.from];
+                        const toLabel = message.to === "all" ? "everyone" : AI_MODELS[message.to as AIProvider]?.name;
+                        const seed: DeepDiveUIMessage[] = [
                           ...contextMessages,
-                          ...teamworkMessages.slice(0, idx + 1).map((tm, j) => ({
-                            id: `tw-${activeThread?.id ?? "thread"}-${j}-${tm.id}`,
+                          ...teamworkMessages.slice(0, idx + 1).map(item => ({
+                            id: item.id,
                             role: "assistant" as const,
-                            content: tm.content,
-                            timestamp: tm.timestamp || Date.now(),
-                            provider: tm.from,
+                            metadata: { provider: item.from, createdAt: item.timestamp },
+                            parts: [{ type: "text", text: item.content }],
                           })),
                         ];
+
                         return (
-                          <div key={m.id} className="relative group border border-border bg-card rounded-lg p-4">
+                          <div key={message.id} className="group relative rounded-[24px] border border-border/70 bg-white/68 p-5 dark:bg-white/[0.05]">
                             <Popover>
                               <PopoverTrigger asChild>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  className="absolute right-3 top-3 h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
                                   aria-label="Message actions"
                                 >
-                                  <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
+                                  <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
                                 </Button>
                               </PopoverTrigger>
                               <PopoverContent className="w-52 p-1" align="end">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => askOtherAI(seed, m.from)}
-                                  className="w-full justify-start"
-                                >
-                                  Ask {AI_MODELS[defaultOther(m.from)].name}
+                                <Button variant="ghost" size="sm" onClick={() => askOtherAI(seed, message.from)} className="w-full justify-start">
+                                  Ask {AI_MODELS[defaultOther(message.from)].name}
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => callVote(seed)}
-                                  className="w-full justify-start"
-                                >
+                                <Button variant="ghost" size="sm" onClick={() => callVote(seed)} className="w-full justify-start">
                                   Call a vote
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => startDebate(seed)}
-                                  className="w-full justify-start"
-                                >
+                                <Button variant="ghost" size="sm" onClick={() => startDebate(seed)} className="w-full justify-start">
                                   Start a debate
                                 </Button>
                               </PopoverContent>
                             </Popover>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className="font-medium" style={{ color: `hsl(var(--${from.color}))` }}>{from.name}</span>
-                              <span>→</span>
-                              <span>{toLabel}</span>
+
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold"
+                                style={{ backgroundColor: `hsl(var(--${from.color}) / 0.14)`, color: `hsl(var(--${from.color}))` }}
+                              >
+                                {from.name.slice(0, 1)}
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-foreground">{from.name}</div>
+                                <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                                  To {toLabel}
+                                </div>
+                              </div>
                             </div>
-                            <div className="mt-2 text-sm text-foreground whitespace-pre-wrap break-words">{m.content}</div>
+
+                            <div className="mt-4 whitespace-pre-wrap break-words text-sm leading-7 text-foreground">
+                              {message.content}
+                            </div>
                           </div>
                         );
                       })}
-                    </div>
-                    <div ref={endRef} />
-                  </>
-                )}
-              </div>
-
-              {activeThread?.type === "chat" && (
-                <ChatInput
-                  onSend={(msg) => sendDeepDiveMessage(deepDive.id, activeThread.id, msg)}
-                  placeholder="Message… (use @Claude, @GPT, @Gemini)"
-                />
-              )}
-            </div>
-          </div>
-
-          {uploadsOpen && (
-            <aside className="w-[280px] bg-muted/40 border-l border-border overflow-y-auto scrollbar-thin px-3 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[13px] font-medium text-foreground">Shared uploads</div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setUploadsOpen(false)}
-                  aria-label="Close uploads"
-                >
-                  <X className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </div>
-
-              <div className="mt-3">
-                <input
-                  type="file"
-                  multiple
-                  className="block w-full text-xs text-muted-foreground file:mr-3 file:py-2 file:px-3 file:rounded-md file:border file:border-border file:bg-card file:text-foreground hover:file:bg-accent"
-                  onChange={(e) => onFilePick(e.target.files)}
-                />
-              </div>
-
-              <div className="mt-4 space-y-2">
-                {deepDive.uploads.length === 0 && (
-                  <div className="text-xs text-muted-foreground">No uploads yet.</div>
-                )}
-                {deepDive.uploads.map(u => (
-                  <div key={u.id} className="flex items-center gap-2 rounded-lg border border-border bg-card p-2">
-                    <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center overflow-hidden shrink-0">
-                      {u.type.startsWith("image/") ? (
-                        <img src={u.url} alt={u.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="text-[10px] text-muted-foreground px-1 text-center">
-                          {u.name.split(".").pop()?.slice(0, 4)?.toUpperCase() ?? "FILE"}
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[13px] text-foreground truncate">{u.name}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">{u.type || "file"}</div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeDeepDiveUpload(deepDive.id, u.id)}
-                      aria-label="Remove upload"
-                    >
-                      <X className="h-4 w-4 text-muted-foreground" />
-                    </Button>
+                    </section>
                   </div>
-                ))}
+                )}
               </div>
-            </aside>
-          )}
-        </div>
-        </div>
+            )}
+          </div>
+        </section>
       </main>
 
-      <Dialog open={!!askDialog?.open} onOpenChange={(o) => !o && setAskDialog(null)}>
-        <DialogContent>
+      <Dialog open={!!askDialog?.open} onOpenChange={(open) => !open && setAskDialog(null)}>
+        <DialogContent className="border-border/70 bg-[rgba(255,255,255,0.92)] backdrop-blur-xl dark:bg-[rgba(18,22,30,0.94)] sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Ask another AI</DialogTitle>
+            <DialogTitle className="text-2xl">Ask another AI</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
-            {participantOrder.map(p => (
-              <label key={p} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 cursor-pointer hover:bg-accent transition-colors">
-                <Checkbox checked={askDialog?.target === p} onCheckedChange={() => askDialog && setAskDialog({ ...askDialog, target: p })} />
-                <div className="text-sm font-medium text-foreground">{AI_MODELS[p].name}</div>
-                <div className="text-xs text-muted-foreground truncate">{AI_MODELS[p].fullName}</div>
+            {participantOrder.map(provider => (
+              <label key={provider} className="flex items-center gap-3 rounded-2xl border border-border/80 bg-white/80 px-4 py-3 dark:bg-white/[0.05]">
+                <Checkbox checked={askDialog?.target === provider} onCheckedChange={() => askDialog && setAskDialog({ ...askDialog, target: provider })} />
+                <div
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold"
+                  style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}) / 0.14)`, color: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                >
+                  {AI_MODELS[provider].name.slice(0, 1)}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-foreground">{AI_MODELS[provider].name}</div>
+                  <div className="truncate text-xs text-muted-foreground">{AI_MODELS[provider].fullName}</div>
+                </div>
               </label>
             ))}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setAskDialog(null)}>
+            <Button variant="outline" onClick={() => setAskDialog(null)} className="rounded-full">
               Cancel
             </Button>
-            <Button onClick={confirmAskOther}>
+            <Button onClick={confirmAskOther} className="rounded-full" disabled={creatingThread}>
               Ask
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!debateDialog?.open} onOpenChange={(o) => !o && setDebateDialog(null)}>
-        <DialogContent>
+      <Dialog open={!!debateDialog?.open} onOpenChange={(open) => !open && setDebateDialog(null)}>
+        <DialogContent className="border-border/70 bg-[rgba(255,255,255,0.92)] backdrop-blur-xl dark:bg-[rgba(18,22,30,0.94)] sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Start a debate</DialogTitle>
+            <DialogTitle className="text-2xl">Start a debate</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
-            {participantOrder.map(p => (
-              <label key={p} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 cursor-pointer hover:bg-accent transition-colors">
-                <Checkbox checked={debateParticipants.includes(p)} onCheckedChange={() => toggleDebater(p)} />
-                <div className="text-sm font-medium text-foreground">{AI_MODELS[p].name}</div>
-                <div className="text-xs text-muted-foreground truncate">{AI_MODELS[p].fullName}</div>
+            {participantOrder.map(provider => (
+              <label key={provider} className="flex items-center gap-3 rounded-2xl border border-border/80 bg-white/80 px-4 py-3 dark:bg-white/[0.05]">
+                <Checkbox checked={debateParticipants.includes(provider)} onCheckedChange={() => toggleDebater(provider)} />
+                <div
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold"
+                  style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}) / 0.14)`, color: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                >
+                  {AI_MODELS[provider].name.slice(0, 1)}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-foreground">{AI_MODELS[provider].name}</div>
+                  <div className="truncate text-xs text-muted-foreground">{AI_MODELS[provider].fullName}</div>
+                </div>
               </label>
             ))}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDebateDialog(null)}>
+            <Button variant="outline" onClick={() => setDebateDialog(null)} className="rounded-full">
               Cancel
             </Button>
-            <Button onClick={confirmDebate}>
+            <Button onClick={confirmDebate} className="rounded-full" disabled={creatingThread || runningDebate}>
               Start
             </Button>
           </DialogFooter>
