@@ -34,11 +34,17 @@ const App = () => (
                 <h1 className="mt-4 text-4xl font-medium tracking-tight text-foreground">Sign in to start a Deep Dive.</h1>
                 <p className="mt-4 text-sm leading-7 text-muted-foreground">Collaborate with multiple AI models in a single workspace.</p>
                 <div className="mt-10">
-                  <SignInButton mode="modal">
+                  <SignInButton mode="modal" forceRedirectUrl="/">
                     <Button size="lg" className="w-full rounded-full bg-foreground text-background hover:bg-foreground/90 py-6 text-base font-medium transition-all hover:scale-[1.02]">
                       Continue with Google
                     </Button>
                   </SignInButton>
+                </div>
+                <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left dark:border-amber-900/30 dark:bg-amber-900/10">
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-400">Important Setup Step:</p>
+                  <p className="mt-1 text-[11px] leading-5 text-amber-700 dark:text-amber-500/80">
+                    Ensure you have created a JWT Template named <strong>"convex"</strong> in your Clerk Dashboard (under JWT Templates) for the authentication to sync correctly.
+                  </p>
                 </div>
                 <p className="mt-6 text-[10px] text-muted-foreground/60 uppercase tracking-widest">Powered by Convex & Clerk</p>
               </div>
