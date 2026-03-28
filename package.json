@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.140",
+    "@clerk/clerk-react": "^5.61.4",
     "@hookform/resolvers": "^3.10.0",
     "@libsql/client": "^0.17.2",
     "@openrouter/ai-sdk-provider": "^2.3.3",

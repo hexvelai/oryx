@@ -1,4 +1,4 @@
-import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
+import { mutation, query, internalMutation, internalQuery, QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { AIProvider } from "../src/types/ai";
 import type {
@@ -9,8 +9,34 @@ import type {
   TeamworkMessage,
   VoteResult,
 } from "../src/lib/deep-dive-types";
+import { Id } from "./_generated/dataModel";
 
 const PROVIDERS = ["gpt", "gemini", "claude"] as const satisfies readonly AIProvider[];
+
+async function getAuthenticatedUser(ctx: QueryCtx | MutationCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Not authenticated");
+  }
+
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
+    .unique();
+
+  if (!user) {
+    // This could happen if the user is authenticated but not in our DB yet
+    const userId = await (ctx as MutationCtx).db.insert("users", {
+      name: identity.name,
+      email: identity.email,
+      image: identity.pictureUrl,
+      tokenIdentifier: identity.tokenIdentifier,
+    });
+    return userId;
+  }
+
+  return user._id;
+}
 
 function now() {
   return Date.now();
@@ -105,7 +131,11 @@ async function hydrateDeepDive(ctx: any, deepDiveId: string): Promise<DeepDiveRe
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const dives = await ctx.db.query("deepDives").collect();
+    const userId = await getAuthenticatedUser(ctx);
+    const dives = await ctx.db
+      .query("deepDives")
+      .withIndex("by_userId_updatedAt", (q) => q.eq("userId", userId))
+      .collect();
     const hydrated = await Promise.all(
       dives
         .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -118,6 +148,11 @@ export const list = query({
 export const get = query({
   args: { diveId: v.id("deepDives") },
   handler: async (ctx, args) => {
+    const userId = await getAuthenticatedUser(ctx);
+    const dive = await ctx.db.get(args.diveId);
+    if (!dive || dive.userId !== userId) {
+      return null;
+    }
     return hydrateDeepDive(ctx, args.diveId);
   },
 });
@@ -128,8 +163,10 @@ export const createDeepDive = mutation({
     providers: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthenticatedUser(ctx);
     const timestamp = now();
     const deepDiveId = await ctx.db.insert("deepDives", {
+      userId,
       title: args.title?.trim() || "New Deep Dive",
       providers: normalizeProviders(args.providers),
       createdAt: timestamp,
@@ -157,6 +194,10 @@ export const createThread = mutation({
     seedMessages: v.optional(v.array(v.any())),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthenticatedUser(ctx);
+    const dive = await ctx.db.get(args.deepDiveId);
+    if (!dive || dive.userId !== userId) throw new Error("Unauthorized");
+
     const timestamp = now();
     const threadId = await ctx.db.insert("threads", {
       deepDiveId: args.deepDiveId,
@@ -178,6 +219,10 @@ export const addUploads = mutation({
     files: v.array(v.object({ name: v.string(), type: v.string(), url: v.string() })),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthenticatedUser(ctx);
+    const dive = await ctx.db.get(args.deepDiveId);
+    if (!dive || dive.userId !== userId) throw new Error("Unauthorized");
+
     const timestamp = now();
     for (const file of args.files) {
       await ctx.db.insert("uploads", {
@@ -198,6 +243,10 @@ export const removeUpload = mutation({
     uploadId: v.id("uploads"),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthenticatedUser(ctx);
+    const dive = await ctx.db.get(args.deepDiveId);
+    if (!dive || dive.userId !== userId) throw new Error("Unauthorized");
+
     await ctx.db.delete(args.uploadId);
     await ctx.db.patch(args.deepDiveId, { updatedAt: now() });
   },
@@ -209,8 +258,12 @@ export const appendUserMessage = mutation({
     text: v.string(),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthenticatedUser(ctx);
     const thread = await ctx.db.get(args.threadId);
     if (!thread) throw new Error("Thread not found");
+
+    const dive = await ctx.db.get(thread.deepDiveId);
+    if (!dive || dive.userId !== userId) throw new Error("Unauthorized");
 
     const timestamp = now();
     const nextMessages = [
@@ -231,6 +284,16 @@ export const appendUserMessage = mutation({
       title: thread.title === "New thread" || thread.title === "Thread 1" ? nextTitle : thread.title,
     });
     await ctx.db.patch(thread.deepDiveId, { updatedAt: timestamp });
+  },
+});
+
+export const getUserByTokenIdentifier = internalQuery({
+  args: { tokenIdentifier: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", args.tokenIdentifier))
+      .unique();
   },
 });
 

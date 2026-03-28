@@ -181,10 +181,21 @@ export const sendThreadMessage = action({
     threadId: v.id("threads"),
   },
   handler: async (ctx, args): Promise<{ ok: true }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
     const apiKey = await resolveOpenRouterKey(ctx);
     const context = await ctx.runQuery(internal.deepDives.getThreadContext, { threadId: args.threadId });
     if (!context?.thread || !context.deepDive) {
       throw new Error("Thread not found");
+    }
+
+    // Check ownership
+    const user = await ctx.runQuery(internal.deepDives.getUserByTokenIdentifier, {
+      tokenIdentifier: identity.tokenIdentifier,
+    });
+    if (!user || context.deepDive.userId !== user._id) {
+      throw new Error("Unauthorized");
     }
 
     const latestText = getLatestUserText(context.thread.messages ?? []);
@@ -242,6 +253,21 @@ export const runVote = action({
     participants: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args): Promise<{ ok: true }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const context = await ctx.runQuery(internal.deepDives.getThreadContext, { threadId: args.threadId });
+    if (!context?.thread || !context.deepDive) {
+      throw new Error("Thread not found");
+    }
+
+    const user = await ctx.runQuery(internal.deepDives.getUserByTokenIdentifier, {
+      tokenIdentifier: identity.tokenIdentifier,
+    });
+    if (!user || context.deepDive.userId !== user._id) {
+      throw new Error("Unauthorized");
+    }
+
     const apiKey = await resolveOpenRouterKey(ctx);
     const participants = (args.participants?.length ? args.participants : ["gpt", "gemini", "claude"]) as AIProvider[];
 
@@ -315,6 +341,21 @@ export const runDebate = action({
     participants: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args): Promise<{ ok: true }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const context = await ctx.runQuery(internal.deepDives.getThreadContext, { threadId: args.threadId });
+    if (!context?.thread || !context.deepDive) {
+      throw new Error("Thread not found");
+    }
+
+    const user = await ctx.runQuery(internal.deepDives.getUserByTokenIdentifier, {
+      tokenIdentifier: identity.tokenIdentifier,
+    });
+    if (!user || context.deepDive.userId !== user._id) {
+      throw new Error("Unauthorized");
+    }
+
     const apiKey = await resolveOpenRouterKey(ctx);
     const participants = (args.participants?.length ? args.participants : ["gpt", "gemini", "claude"]) as AIProvider[];
     const transcript: Array<{ from: AIProvider; content: string }> = [];

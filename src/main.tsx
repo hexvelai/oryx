@@ -1,10 +1,13 @@
 import { Component, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { ConvexReactClient } from "convex/react";
+import { ClerkProvider, useAuth } from "@clerk/clerk-react";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
 import App from "./App.tsx";
 import "./index.css";
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL;
+const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
 function inferSetupHint(message: string) {
   if (
@@ -53,12 +56,14 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 }
 
 createRoot(document.getElementById("root")!).render(
-  convexUrl ? (
-    <AppErrorBoundary>
-      <ConvexProvider client={new ConvexReactClient(convexUrl)}>
-        <App />
-      </ConvexProvider>
-    </AppErrorBoundary>
+  convexUrl && clerkPubKey ? (
+    <ClerkProvider publishableKey={clerkPubKey}>
+      <AppErrorBoundary>
+        <ConvexProviderWithClerk client={new ConvexReactClient(convexUrl)} useAuth={useAuth}>
+          <App />
+        </ConvexProviderWithClerk>
+      </AppErrorBoundary>
+    </ClerkProvider>
   ) : (
     <div
       style={{
@@ -72,7 +77,8 @@ createRoot(document.getElementById("root")!).render(
       }}
     >
       <div style={{ maxWidth: 560, lineHeight: 1.6 }}>
-        Missing <code>VITE_CONVEX_URL</code>. Add your Convex deployment URL in <code>.env.local</code> to run the app.
+        Missing <code>VITE_CONVEX_URL</code> or <code>VITE_CLERK_PUBLISHABLE_KEY</code>. 
+        Add them in <code>.env.local</code> to run the app.
       </div>
     </div>
   ),

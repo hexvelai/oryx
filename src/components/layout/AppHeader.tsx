@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
 import { useTheme } from "next-themes";
 import { useLocation, useNavigate } from "react-router-dom";
+import { UserButton } from "@clerk/clerk-react";
 import { ArrowUpRight, Boxes, MoonStar, Plus, Presentation, SunMedium } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -156,6 +157,18 @@ export function AppHeader() {
               />
               AI Settings
             </Button>
+            <Separator orientation="vertical" className="h-6 mx-1" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-white/65 shadow-sm dark:bg-white/[0.05]">
+              <UserButton 
+                afterSignOutUrl="/"
+                appearance={{
+                  elements: {
+                    userButtonAvatarBox: "h-8 w-8 rounded-full",
+                    userButtonTrigger: "focus:shadow-none focus:outline-none",
+                  }
+                }}
+              />
+            </div>
           </div>
         </div>
       </header>

@@ -2,12 +2,20 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  users: defineTable({
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+    image: v.optional(v.string()),
+    tokenIdentifier: v.string(),
+  }).index("by_tokenIdentifier", ["tokenIdentifier"]),
+
   deepDives: defineTable({
+    userId: v.id("users"),
     title: v.string(),
     providers: v.array(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_updatedAt", ["updatedAt"]),
+  }).index("by_userId_updatedAt", ["userId", "updatedAt"]),
 
   threads: defineTable({
     deepDiveId: v.id("deepDives"),
