@@ -50,7 +50,7 @@ async function sendWebResponse(res: ServerResponse, response: Response) {
 
 export function devApiPlugin(): Plugin {
   return {
-    name: "teselix-dev-api",
+    name: "oryx-dev-api",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         if (!req.url?.startsWith("/api/")) {

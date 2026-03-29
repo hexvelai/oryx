@@ -137,20 +137,31 @@ export function ThreadChatPanel({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div ref={scrollerRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-5 py-5 sm:px-6">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <div
+        ref={scrollerRef}
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin px-4 py-4 sm:px-5 sm:py-5"
+      >
         <div className="space-y-4">
           {visibleMessages.length === 0 && (
-            <div className="mx-auto mt-12 max-w-xl rounded-[26px] border border-dashed border-border/80 bg-white/55 px-6 py-8 text-center dark:bg-white/[0.03]">
-              <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-white/75 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-muted-foreground dark:bg-white/[0.04]">
-                <Sparkles className="h-3.5 w-3.5" />
-                Ready to start
+            <div className="flex w-full justify-center pt-2 sm:pt-6">
+              <div className="w-full max-w-md rounded-xl border border-border bg-muted/25 px-5 py-8 text-center dark:bg-muted/15">
+                <div className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                  Thread ready
+                </div>
+                <h2 className="mt-5 text-balance text-lg font-medium leading-snug text-foreground sm:text-xl">
+                  One thread, one line of thinking. Branch when you need to.
+                </h2>
+                <p className="mt-3 text-pretty text-sm leading-relaxed text-muted-foreground">
+                  Use <span className="font-medium text-foreground">@gpt</span>,{" "}
+                  <span className="font-medium text-foreground">@gemini</span>, or{" "}
+                  <span className="font-medium text-foreground">@nemotron</span> to route a message, or just type—the project picks a model when you do not.
+                </p>
+                <p className="mt-4 text-xs text-muted-foreground">
+                  From a reply menu: ask another model, call a vote, or start a debate.
+                </p>
               </div>
-              <div className="mt-5 text-2xl text-foreground">Ask directly or route with intent.</div>
-              <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                Mention a model with <span className="font-medium text-foreground">@GPT</span>, <span className="font-medium text-foreground">@Gemini</span>,
-                or <span className="font-medium text-foreground">@Claude</span>, or let the thread choose for you.
-              </p>
             </div>
           )}
 
@@ -211,7 +222,7 @@ export function ThreadChatPanel({
                           ) : null}
                           {onReplyInHumanChat ? (
                             <Button variant="ghost" size="sm" onClick={() => onReplyInHumanChat(message)} className="w-full justify-start">
-                              Reply in team chat
+                              Reply in project notes
                             </Button>
                           ) : null}
                           {canUseTools ? (
@@ -254,7 +265,7 @@ export function ThreadChatPanel({
           })}
 
           {isSending ? (
-            <div className="flex items-center gap-2 px-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <div className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
               <div className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
               <div className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
@@ -263,7 +274,7 @@ export function ThreadChatPanel({
           ) : null}
 
           {errorMessage ? (
-            <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <div className="rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-3 text-sm text-destructive">
               {errorMessage}
             </div>
           ) : null}
@@ -272,10 +283,10 @@ export function ThreadChatPanel({
         </div>
       </div>
 
-      <div className="border-t border-border/70 bg-[rgba(255,255,255,0.42)] p-3 dark:bg-[rgba(12,15,22,0.72)]">
+      <div className="border-t border-border bg-background px-4 py-3 sm:px-5">
         <ChatInput
           onSend={onSend}
-          placeholder="Ask the thread a question or mention a model with @GPT, @Gemini, or @Claude"
+          placeholder="Ask this thread a question, or route with @gpt, @gemini, or @nemotron"
           disabled={isSending || !canSend}
           autoFocus={true}
           reply={

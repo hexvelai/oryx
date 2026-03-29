@@ -60,7 +60,7 @@ export function useChatContext() {
 }
 
 const ALL_PROVIDERS: AIProvider[] = ["gpt", "gemini", "claude"];
-const PROVIDER_CONFIG_KEY = "teselix.providerConfig";
+const PROVIDER_CONFIG_KEY = "oryx.providerConfig";
 
 type ProviderConfig = {
   enabled: Partial<Record<AIProvider, boolean>>;
@@ -167,7 +167,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const createDeepDive = useCallback(async (init?: { title?: string; providers?: AIProvider[] }) => {
     const id = await convexCreateDeepDive({
-      title: init?.title ?? "New Deep Dive",
+      title: init?.title ?? "New Project",
       providers: init?.providers ?? availableProviders,
     });
     const idStr = String(id);
@@ -205,7 +205,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [convexRunDebate]);
 
   const forkThreadFromMessages = useCallback(async (init: { deepDiveId?: string; title?: string; type: DeepDiveThread["type"]; seedMessages: ChatMessage[] }) => {
-    const dId = init.deepDiveId ?? await createDeepDive({ title: "New Deep Dive" });
+    const dId = init.deepDiveId ?? await createDeepDive({ title: "New Project" });
     const tId = await createThread(dId, { title: init.title, type: init.type, seedMessages: init.seedMessages });
     return { deepDiveId: dId, threadId: tId };
   }, [createDeepDive, createThread]);

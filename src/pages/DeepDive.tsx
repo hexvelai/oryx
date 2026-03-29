@@ -3,8 +3,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAction, useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
 import {
   ChevronLeft,
+  MessageSquare,
   MessageSquareText,
   MoreHorizontal,
+  PanelLeft,
+  PanelRightClose,
+  PencilLine,
   Scale,
   Trash2,
   LogOut,
@@ -20,12 +24,27 @@ import { convexApi } from "@/lib/convex-api";
 import type { DeepDiveMember, DeepDiveRole, DeepDiveThreadRecord, DeepDiveUIMessage, HumanChatMessage } from "@/lib/deep-dive-types";
 import { DEEP_DIVE_PROVIDERS } from "@/lib/deep-dive-types";
 import { ThreadChatPanel } from "@/components/deep-dive/ThreadChatPanel";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { usePersistedBoolean } from "@/hooks/usePersistedBoolean";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -98,9 +117,9 @@ function renderMarkdown(content: string) {
 }
 
 function threadTypeCopy(type: DeepDiveThreadRecord["type"]) {
-  if (type === "vote") return { label: "Vote", detail: "Multiple models propose and score the best path." };
-  if (type === "teamwork") return { label: "Debate", detail: "Models collaborate in sequence and build on each other." };
-  return { label: "Thread", detail: "Direct conversation with routing and branching." };
+  if (type === "vote") return { label: "Vote", detail: "Multiple models propose options, then score the strongest direction." };
+  if (type === "teamwork") return { label: "Debate", detail: "Models challenge, refine, and synthesize ideas in sequence." };
+  return { label: "Thread", detail: "A direct conversation with shared project context and model routing." };
 }
 
 function formatDateTime(ts: number) {
@@ -117,6 +136,8 @@ export default function DeepDive() {
   const { diveId } = useParams();
   const deepDive = useConvexQuery(convexApi.deepDives.get, diveId ? { diveId } : "skip");
   const createThread = useConvexMutation(convexApi.deepDives.createThread);
+  const updateThreadTitle = useConvexMutation(convexApi.deepDives.updateThreadTitle);
+  const deleteThread = useConvexMutation(convexApi.deepDives.deleteThread);
   const appendUserMessage = useConvexMutation(convexApi.deepDives.appendUserMessage);
   const sendThreadMessage = useAction(convexApi.ai.sendThreadMessage);
   const runVote = useAction(convexApi.ai.runVote);
@@ -150,6 +171,16 @@ export default function DeepDive() {
   const [deletingDive, setDeletingDive] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [leavingDive, setLeavingDive] = useState(false);
+  const [renameThreadOpen, setRenameThreadOpen] = useState(false);
+  const [renameThreadId, setRenameThreadId] = useState<string | null>(null);
+  const [renameThreadTitle, setRenameThreadTitle] = useState("");
+  const [renameThreadError, setRenameThreadError] = useState<string | null>(null);
+  const [savingThreadTitle, setSavingThreadTitle] = useState(false);
+  const [threadDeleteTarget, setThreadDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deletingThread, setDeletingThread] = useState(false);
+  const [threadDeleteError, setThreadDeleteError] = useState<string | null>(null);
+  const [threadsOpen, setThreadsOpen] = usePersistedBoolean("oryx.deepDive.threads", false);
+  const [notesOpen, setNotesOpen] = usePersistedBoolean("oryx.deepDive.notes", false);
 
   const activeThread = useMemo(() => {
     if (!deepDive) return null;
@@ -197,7 +228,7 @@ export default function DeepDive() {
         <AppHeader />
         <div className="mx-auto flex min-h-[70vh] max-w-4xl items-center justify-center px-6">
           <div className="surface-panel rounded-[28px] px-8 py-10 text-center text-muted-foreground">
-            Loading Deep Dive...
+            Loading project...
           </div>
         </div>
       </div>
@@ -210,13 +241,13 @@ export default function DeepDive() {
         <AppHeader />
         <div className="mx-auto flex min-h-[70vh] max-w-4xl items-center justify-center px-6">
           <div className="surface-panel rounded-[28px] px-8 py-10 text-center">
-            <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Deep Dives</div>
-            <div className="mt-4 text-3xl text-foreground">Deep Dive not found</div>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Projects</div>
+            <div className="mt-4 text-3xl text-foreground">Project not found</div>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              This workspace does not exist in the database yet.
+              This project does not exist in the database yet.
             </p>
             <Link to="/" className="mt-6 inline-flex text-sm font-medium text-foreground underline underline-offset-4">
-              Back to dashboard
+              Back to projects
             </Link>
           </div>
         </div>
@@ -260,7 +291,7 @@ export default function DeepDive() {
       await deleteDeepDive({ deepDiveId: deepDive.id });
       navigate("/", { replace: true });
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "Failed to delete Deep Dive");
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete project");
     } finally {
       setDeletingDive(false);
     }
@@ -353,6 +384,49 @@ export default function DeepDive() {
       setActiveThreadId(String(threadId));
     } finally {
       setCreatingThread(false);
+    }
+  };
+
+  const openRenameThread = (thread: DeepDiveThreadRecord) => {
+    setRenameThreadId(thread.id);
+    setRenameThreadTitle(thread.title);
+    setRenameThreadError(null);
+    setRenameThreadOpen(true);
+  };
+
+  const submitRenameThread = async () => {
+    if (!renameThreadId) return;
+    setRenameThreadError(null);
+    setSavingThreadTitle(true);
+    try {
+      await updateThreadTitle({ threadId: renameThreadId, title: renameThreadTitle });
+      setRenameThreadOpen(false);
+      setRenameThreadId(null);
+      setRenameThreadTitle("");
+    } catch (error) {
+      setRenameThreadError(error instanceof Error ? error.message : "Failed to rename thread");
+    } finally {
+      setSavingThreadTitle(false);
+    }
+  };
+
+  const confirmDeleteThread = async () => {
+    if (!threadDeleteTarget || !deepDive) return;
+    setThreadDeleteError(null);
+    setDeletingThread(true);
+    try {
+      await deleteThread({ threadId: threadDeleteTarget.id });
+      if (activeThread?.id === threadDeleteTarget.id) {
+        const fallback = deepDive.threads
+          .filter((thread) => thread.id !== threadDeleteTarget.id)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        setActiveThreadId(fallback?.id ?? "");
+      }
+      setThreadDeleteTarget(null);
+    } catch (error) {
+      setThreadDeleteError(error instanceof Error ? error.message : "Failed to delete thread");
+    } finally {
+      setDeletingThread(false);
     }
   };
 
@@ -465,36 +539,109 @@ export default function DeepDive() {
   const voteResults = activeThread?.voteResults ?? [];
   const teamworkMessages = activeThread?.teamworkMessages ?? [];
   const voteWinner = voteResults.length ? [...voteResults].sort((a, b) => b.votes.length - a.votes.length)[0] : null;
+  const threadCount = deepDive.threads.length;
 
   return (
-    <div className="app-canvas min-h-screen bg-background">
-      <AppHeader />
-
-      <main className="grid h-[calc(100vh-81px)] w-full grid-cols-[290px_minmax(0,1fr)_320px] gap-0 overflow-hidden pb-0 pt-0">
-        <aside className="flex h-full min-h-0 flex-col border-r border-border/70 bg-[rgba(250,246,240,0.78)] px-4 py-6 backdrop-blur-xl dark:bg-[rgba(14,17,24,0.9)]">
-          <div className="flex items-start justify-between gap-3 px-2 pt-2">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Navigation</div>
-              <div className="mt-2 text-xl text-foreground">Threads</div>
+    <div className="app-canvas flex min-h-[100dvh] flex-col bg-background">
+      <AppHeader
+        workspace={{
+          leading: (
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 rounded-full"
+                onClick={() => navigate("/")}
+                aria-label="All projects"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <button
+                type="button"
+                onClick={() => navigate("/")}
+                className="shrink-0 rounded-lg p-0.5 transition-colors hover:bg-muted/70"
+                aria-label="Home"
+              >
+                <BrandLogo compact showLabel={false} className="gap-0" />
+              </button>
+              <Separator orientation="vertical" className="hidden h-6 sm:block" />
+              <div className="min-w-0 flex-1 text-left">
+                <div className="truncate text-sm font-medium leading-tight text-foreground">{deepDive.title}</div>
+                <div className="truncate text-xs text-muted-foreground">{activeThread?.title ?? "Thread"}</div>
+              </div>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="rounded-full px-3 text-muted-foreground">
-              <ChevronLeft className="h-4 w-4" />
-              Back
+          ),
+          beforeSystemControls: (
+            <>
+              <Button
+                type="button"
+                variant={threadsOpen ? "secondary" : "ghost"}
+                size="icon"
+                className="h-9 w-9 rounded-full"
+                aria-pressed={threadsOpen}
+                aria-expanded={threadsOpen}
+                aria-label={threadsOpen ? "Hide threads" : "Show threads"}
+                onClick={() => setThreadsOpen((o) => !o)}
+              >
+                <PanelLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant={notesOpen ? "secondary" : "ghost"}
+                size="icon"
+                className="h-9 w-9 rounded-full"
+                aria-pressed={notesOpen}
+                aria-expanded={notesOpen}
+                aria-label={notesOpen ? "Hide team notes" : "Show team notes"}
+                onClick={() => setNotesOpen((o) => !o)}
+              >
+                {notesOpen ? <PanelRightClose className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
+              </Button>
+            </>
+          ),
+        }}
+      />
+
+      <main className="flex min-h-0 flex-1 overflow-hidden">
+        <aside
+          className={cn(
+            "flex h-full min-h-0 shrink-0 overflow-hidden border-border/60 bg-muted/40 transition-[width,border-color] duration-200 ease-out dark:bg-muted/25",
+            threadsOpen ? "border-r" : "border-transparent",
+          )}
+          style={{ width: threadsOpen ? "min(288px, 92vw)" : 0 }}
+        >
+          <div className="flex h-full w-[288px] flex-col px-3 pb-4 pt-3">
+            <div className="flex items-center justify-between gap-2 px-1">
+              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Threads</div>
+              <span className="text-xs tabular-nums text-muted-foreground">{threadCount}</span>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={newThread}
+              className="mt-3 rounded-full border-border/80 bg-white/70 text-xs dark:bg-white/[0.06]"
+              disabled={creatingThread || !canEdit}
+            >
+              <MessageSquareText className="h-3.5 w-3.5" />
+              New thread
             </Button>
-          </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={newThread}
-            className="mt-5 rounded-full border-border/80 bg-white/70 dark:bg-white/[0.06]"
-            disabled={creatingThread || !canEdit}
-          >
-            <MessageSquareText className="h-4 w-4" />
-            New thread
-          </Button>
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-white/60 px-3 py-2 dark:bg-white/[0.04]">
+              <div className="flex items-center gap-1.5" title="Models in this project">
+                {deepDive.providers.map((provider) => (
+                  <span
+                    key={provider}
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                  />
+                ))}
+              </div>
+              <span className="text-[11px] capitalize text-muted-foreground">{myRole}</span>
+            </div>
 
-          <div className="mt-5 flex-1 overflow-y-auto scrollbar-thin pr-1">
+            <div className="mt-4 flex-1 overflow-y-auto scrollbar-thin pr-1">
             {Object.entries(threadsByGroup).map(([label, threads]) => (
               <div key={label} className="mb-5">
                 <div className="px-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
@@ -503,108 +650,147 @@ export default function DeepDive() {
                     const isActive = thread.id === activeThread?.id;
                     const meta = threadTypeCopy(thread.type);
                     return (
-                      <button
+                      <div
                         key={thread.id}
-                        type="button"
-                        onClick={() => setActiveThreadId(thread.id)}
-                        className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+                        className={`rounded-2xl border px-3 py-3 transition ${
                           isActive
                             ? "border-border bg-white shadow-sm dark:bg-white/[0.07] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]"
                             : "border-transparent bg-transparent hover:border-border/70 hover:bg-white/50 dark:hover:bg-white/[0.04]"
                         }`}
                       >
-                        <div className="text-sm font-medium text-foreground">{thread.title}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">{meta.label}</div>
-                        <div className="mt-3 text-xs text-muted-foreground">
-                          Updated {formatDateTime(thread.updatedAt)}
+                        <div className="flex items-start gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setActiveThreadId(thread.id)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <div className="text-sm font-medium text-foreground">{thread.title}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">{meta.label}</div>
+                            <div className="mt-3 text-xs text-muted-foreground">
+                              Updated {formatDateTime(thread.updatedAt)}
+                            </div>
+                          </button>
+                          {canEdit ? (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 shrink-0 rounded-full text-muted-foreground"
+                                  aria-label="Thread actions"
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem onClick={() => openRenameThread(thread)}>
+                                  <PencilLine className="mr-2 h-4 w-4" />
+                                  Rename thread
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setThreadDeleteError(null);
+                                    setThreadDeleteTarget({ id: thread.id, title: thread.title });
+                                  }}
+                                  disabled={threadCount <= 1}
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete thread
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          ) : null}
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
               </div>
             ))}
           </div>
+          </div>
         </aside>
 
-        <section className="flex h-full min-h-0 flex-col overflow-hidden bg-[rgba(255,255,255,0.42)] dark:bg-[rgba(10,12,18,0.48)]">
-          <div className="border-b border-border/70 bg-[rgba(255,255,255,0.6)] px-8 py-4 backdrop-blur-xl dark:bg-[rgba(18,21,29,0.82)]">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+          <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2 sm:px-5">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+              <span className="hidden shrink-0 rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:inline-block">
+                {activeType.label}
+              </span>
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Deep Dive</div>
-                <h1 className="mt-2 text-[40px] leading-none text-foreground">{deepDive.title}</h1>
+                <h2 className="truncate text-sm font-semibold text-foreground sm:text-base">{activeThread?.title ?? "Thread"}</h2>
+                <p className="hidden truncate text-xs text-muted-foreground sm:block">{activeType.detail}</p>
               </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {deepDive.providers.map(provider => (
-                  <div
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <div className="hidden items-center gap-1.5 lg:flex" title="Models">
+                {deepDive.providers.map((provider) => (
+                  <span
                     key={provider}
-                    className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-white/80 px-3 py-1 text-xs dark:bg-white/[0.06]"
-                  >
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
-                    />
-                    <span>{AI_MODELS[provider].name}</span>
-                  </div>
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                  />
                 ))}
-                <Button variant="outline" size="sm" className="rounded-full" onClick={() => setShareOpen(true)}>
-                  <Users2 className="h-4 w-4" />
-                  Share
-                </Button>
-                {myRole !== "owner" ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-full"
-                    disabled={leavingDive}
-                    onClick={() => {
-                      if (!deepDive) return;
-                      void (async () => {
-                        setLeavingDive(true);
-                        try {
-                          await leaveDeepDive({ deepDiveId: deepDive.id });
-                          navigate("/", { replace: true });
-                        } finally {
-                          setLeavingDive(false);
-                        }
-                      })();
-                    }}
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Exit
-                  </Button>
-                ) : null}
-                {myRole === "owner" ? (
-                  <Button variant="outline" size="sm" className="rounded-full" onClick={() => setDeleteOpen(true)}>
-                    <Trash2 className="h-4 w-4" />
-                    Delete
-                  </Button>
-                ) : null}
               </div>
+              <Badge
+                variant="secondary"
+                className="shrink-0 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-normal tabular-nums text-foreground"
+              >
+                {contextMessages.length} in context
+              </Badge>
+              {activeThread?.type !== "chat" ? (
+                <Badge variant="outline" className="hidden rounded-md px-2 py-0.5 text-[10px] font-normal sm:inline-flex">
+                  Branched
+                </Badge>
+              ) : null}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-8 w-8 rounded-full border-border/70" aria-label="Project menu">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem onClick={() => setShareOpen(true)}>
+                    <Users2 className="mr-2 h-4 w-4" />
+                    Share project
+                  </DropdownMenuItem>
+                  {myRole !== "owner" ? (
+                    <DropdownMenuItem
+                      disabled={leavingDive}
+                      onClick={() => {
+                        if (!deepDive) return;
+                        void (async () => {
+                          setLeavingDive(true);
+                          try {
+                            await leaveDeepDive({ deepDiveId: deepDive.id });
+                            navigate("/", { replace: true });
+                          } finally {
+                            setLeavingDive(false);
+                          }
+                        })();
+                      }}
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Leave project
+                    </DropdownMenuItem>
+                  ) : null}
+                  {myRole === "owner" ? (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => setDeleteOpen(true)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete project
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="border-b border-border/70 bg-[rgba(255,255,255,0.42)] px-8 py-3.5 dark:bg-[rgba(14,17,24,0.72)]">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{activeType.label}</div>
-                  <div className="mt-1.5 text-[18px] text-foreground">{activeThread?.title ?? "Thread"}</div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="secondary" className="rounded-full border border-border/70 bg-white/75 px-3 py-1 text-xs text-foreground dark:bg-white/[0.06]">
-                    {contextMessages.length} messages
-                  </Badge>
-                  {activeThread?.type !== "chat" && (
-                    <Badge variant="secondary" className="rounded-full border border-border/70 bg-white/75 px-3 py-1 text-xs text-foreground dark:bg-white/[0.06]">
-                      Derived from context
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            </div>
-
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {!activeThread ? null : activeThread.type === "chat" ? (
               <ThreadChatPanel
                 key={activeThread.id}
@@ -624,7 +810,7 @@ export default function DeepDive() {
                 onCancelReply={() => setThreadReplyTo(null)}
               />
             ) : (
-              <div className="flex-1 overflow-y-auto scrollbar-thin px-8 py-6">
+              <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-4 py-4 sm:px-5">
                 {activeThread.type === "vote" && (
                   <div className="space-y-6">
                     {contextMessages.length > 0 && (
@@ -683,7 +869,7 @@ export default function DeepDive() {
                           <div
                             key={result.provider}
                             className={`group relative rounded-[24px] border p-5 ${
-                              isWinner ? "border-primary/20 bg-[rgba(255,255,255,0.88)] shadow-sm dark:bg-[rgba(34,38,47,0.92)] dark:shadow-[0_18px_44px_rgba(0,0,0,0.25)]" : "border-border/70 bg-white/68 dark:bg-white/[0.05]"
+                              isWinner ? "border-primary/30 bg-card shadow-sm" : "border-border/70 bg-muted/40 dark:bg-muted/20"
                             }`}
                           >
                             <Popover>
@@ -862,17 +1048,26 @@ export default function DeepDive() {
               </div>
             )}
           </div>
+          </div>
         </section>
 
-        <aside className="flex h-full min-h-0 flex-col border-l border-border/70 bg-[rgba(250,246,240,0.78)] px-4 py-6 backdrop-blur-xl dark:bg-[rgba(14,17,24,0.9)]">
-          <div className="px-2 pt-2">
-            <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Humans</div>
-            <div className="mt-2 text-xl text-foreground">Team chat</div>
-            <div className="mt-2 text-xs text-muted-foreground">Access: {myRole}</div>
-          </div>
+        <aside
+          className={cn(
+            "flex h-full min-h-0 shrink-0 overflow-hidden border-border/60 bg-muted/40 transition-[width,border-color] duration-200 ease-out dark:bg-muted/25",
+            notesOpen ? "border-l" : "border-transparent",
+          )}
+          style={{ width: notesOpen ? "min(300px, 92vw)" : 0 }}
+        >
+          <div className="flex h-full w-[300px] flex-col px-3 pb-4 pt-3">
+            <div className="flex items-start justify-between gap-2 px-1">
+              <div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Team notes</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">People · {myRole}</div>
+              </div>
+            </div>
 
-          <div className="mt-5 flex-1 overflow-y-auto scrollbar-thin pr-1">
-            <div className="space-y-3 px-2">
+            <div className="mt-3 flex-1 overflow-y-auto scrollbar-thin pr-1">
+            <div className="space-y-3 px-0.5">
               {(humanMessages ?? []).map((message) => (
                 <div key={message.id} className="rounded-2xl border border-border/70 bg-white/70 px-3 py-3 text-sm dark:bg-white/[0.05]">
                   <div className="flex items-center justify-between gap-3">
@@ -910,10 +1105,10 @@ export default function DeepDive() {
             </div>
           </div>
 
-          <div className="mt-4 border-t border-border/70 pt-4">
+          <div className="mt-3 border-t border-border/60 pt-3">
             <ChatInput
               onSend={sendHumanMessage}
-              placeholder={canComment ? "Message your team..." : "View-only"}
+              placeholder={canComment ? "Add a note for the team..." : "View-only"}
               disabled={sendingHumanChat || !canComment}
               autoFocus={false}
               value={humanDraft}
@@ -929,18 +1124,19 @@ export default function DeepDive() {
               }
             />
           </div>
+          </div>
         </aside>
       </main>
 
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="border-border/70 bg-[rgba(255,255,255,0.92)] backdrop-blur-xl dark:bg-[rgba(18,22,30,0.94)] sm:max-w-2xl">
+        <DialogContent className="border-border bg-background sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Share & access</DialogTitle>
+            <DialogTitle className="text-2xl">Project access</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-6">
             <div className="rounded-[22px] border border-border/70 bg-white/70 p-4 dark:bg-white/[0.05]">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Invite</div>
+              <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Invite people</div>
               <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_160px]">
                 <Input
                   value={inviteEmailInput}
@@ -1074,12 +1270,12 @@ export default function DeepDive() {
       </Dialog>
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent className="border-border/70 bg-[rgba(255,255,255,0.92)] backdrop-blur-xl dark:bg-[rgba(18,22,30,0.94)] sm:max-w-xl">
+        <DialogContent className="border-border bg-background sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Delete Deep Dive</DialogTitle>
+            <DialogTitle className="text-2xl">Delete project</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 text-sm text-muted-foreground">
-            <div>This permanently deletes the Deep Dive, threads, uploads, invites, members, and human chat.</div>
+            <div>This permanently deletes the project, its threads, uploads, invites, members, and project notes.</div>
             <div className="font-medium text-foreground">{deepDive.title}</div>
             {deleteError ? (
               <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -1098,10 +1294,94 @@ export default function DeepDive() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!askDialog?.open} onOpenChange={(open) => !open && setAskDialog(null)}>
-        <DialogContent className="border-border/70 bg-[rgba(255,255,255,0.92)] backdrop-blur-xl dark:bg-[rgba(18,22,30,0.94)] sm:max-w-xl">
+      <Dialog
+        open={renameThreadOpen}
+        onOpenChange={(open) => {
+          setRenameThreadOpen(open);
+          if (!open) {
+            setRenameThreadId(null);
+            setRenameThreadTitle("");
+            setRenameThreadError(null);
+          }
+        }}
+      >
+        <DialogContent className="border-border bg-background sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Ask another AI</DialogTitle>
+            <DialogTitle className="text-2xl">Rename thread</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              value={renameThreadTitle}
+              onChange={(event) => setRenameThreadTitle(event.target.value)}
+              placeholder="Thread title"
+              className="rounded-2xl bg-white/80 dark:bg-white/[0.05]"
+            />
+            {renameThreadError ? (
+              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                {renameThreadError}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setRenameThreadOpen(false)} className="rounded-full" disabled={savingThreadTitle}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submitRenameThread()} className="rounded-full" disabled={savingThreadTitle || !renameThreadTitle.trim()}>
+              Save title
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={threadDeleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setThreadDeleteTarget(null);
+            setThreadDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete thread</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the thread and all of its messages from the project.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="font-medium text-foreground">{threadDeleteTarget?.title}</div>
+            {threadCount <= 1 ? (
+              <div className="rounded-2xl border border-border/70 bg-white/70 px-4 py-3 text-muted-foreground dark:bg-white/[0.04]">
+                Projects must keep at least one thread.
+              </div>
+            ) : null}
+            {threadDeleteError ? (
+              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-destructive">
+                {threadDeleteError}
+              </div>
+            ) : null}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingThread}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDeleteThread();
+              }}
+              disabled={deletingThread || threadCount <= 1}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete thread
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={!!askDialog?.open} onOpenChange={(open) => !open && setAskDialog(null)}>
+        <DialogContent className="border-border bg-background sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="text-2xl">Ask another model</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             {participantOrder.map(provider => (
@@ -1132,9 +1412,9 @@ export default function DeepDive() {
       </Dialog>
 
       <Dialog open={!!debateDialog?.open} onOpenChange={(open) => !open && setDebateDialog(null)}>
-        <DialogContent className="border-border/70 bg-[rgba(255,255,255,0.92)] backdrop-blur-xl dark:bg-[rgba(18,22,30,0.94)] sm:max-w-xl">
+        <DialogContent className="border-border bg-background sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Start a debate</DialogTitle>
+            <DialogTitle className="text-2xl">Start a debate thread</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             {participantOrder.map(provider => (

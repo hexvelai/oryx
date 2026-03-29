@@ -229,7 +229,7 @@ export const createDeepDive = mutation({
     const timestamp = now();
     const deepDiveId = await ctx.db.insert("deepDives", {
       userId,
-      title: args.title?.trim() || "New Deep Dive",
+      title: args.title?.trim() || "New Project",
       providers: normalizeProviders(args.providers),
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -279,6 +279,77 @@ export const createThread = mutation({
 
     await ctx.db.patch(args.deepDiveId, { updatedAt: timestamp });
     return threadId;
+  },
+});
+
+export const updateThreadTitle = mutation({
+  args: {
+    threadId: v.id("threads"),
+    title: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getOrCreateUserId(ctx);
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) throw new Error("Thread not found");
+
+    const role = await getRoleForUser(ctx, { deepDiveId: thread.deepDiveId, userId });
+    requireRole(role, ["owner", "editor"]);
+
+    const trimmed = args.title.replace(/\s+/g, " ").trim();
+    if (!trimmed) throw new Error("Thread title cannot be empty");
+
+    const timestamp = now();
+    await ctx.db.patch(args.threadId, {
+      title: truncateTitle(trimmed),
+      updatedAt: timestamp,
+    });
+    await ctx.db.patch(thread.deepDiveId, { updatedAt: timestamp });
+  },
+});
+
+export const updateDeepDiveTitle = mutation({
+  args: {
+    deepDiveId: v.id("deepDives"),
+    title: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor"]);
+
+    const trimmed = args.title.replace(/\s+/g, " ").trim();
+    if (!trimmed) throw new Error("Project name cannot be empty");
+
+    await ctx.db.patch(args.deepDiveId, {
+      title: truncateTitle(trimmed),
+      updatedAt: now(),
+    });
+  },
+});
+
+export const deleteThread = mutation({
+  args: {
+    threadId: v.id("threads"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getOrCreateUserId(ctx);
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) throw new Error("Thread not found");
+
+    const role = await getRoleForUser(ctx, { deepDiveId: thread.deepDiveId, userId });
+    requireRole(role, ["owner", "editor"]);
+
+    const siblingThreads = await ctx.db
+      .query("threads")
+      .withIndex("by_deepDiveId_updatedAt", (q) => q.eq("deepDiveId", thread.deepDiveId))
+      .collect();
+
+    if (siblingThreads.length <= 1) {
+      throw new Error("Projects must keep at least one thread");
+    }
+
+    await ctx.db.delete(args.threadId);
+    await ctx.db.patch(thread.deepDiveId, { updatedAt: now() });
   },
 });
 
@@ -656,7 +727,7 @@ export const leaveDeepDive = mutation({
     const userId = await getOrCreateUserId(ctx);
     const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
     if (!role) return { ok: true };
-    if (role === "owner") throw new Error("Owners cannot leave a Deep Dive. Transfer ownership or delete it.");
+    if (role === "owner") throw new Error("Owners cannot leave a project. Transfer ownership or delete it.");
 
     const membership = await ctx.db
       .query("deepDiveMemberships")
@@ -726,7 +797,7 @@ export const updateMemberRole = mutation({
     requireRole(role, ["owner"]);
 
     const dive = await ctx.db.get(args.deepDiveId);
-    if (!dive) throw new Error("Deep Dive not found");
+    if (!dive) throw new Error("Project not found");
     if (args.memberUserId === dive.userId) throw new Error("Cannot change owner role");
 
     const membership = await ctx.db
@@ -747,7 +818,7 @@ export const removeMember = mutation({
     requireRole(role, ["owner"]);
 
     const dive = await ctx.db.get(args.deepDiveId);
-    if (!dive) throw new Error("Deep Dive not found");
+    if (!dive) throw new Error("Project not found");
     if (args.memberUserId === dive.userId) throw new Error("Cannot remove owner");
 
     const membership = await ctx.db

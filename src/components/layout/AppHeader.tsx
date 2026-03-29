@@ -1,34 +1,41 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
 import { useTheme } from "next-themes";
 import { useLocation, useNavigate } from "react-router-dom";
 import { UserButton } from "@clerk/clerk-react";
-import { ArrowUpRight, Boxes, MoonStar, Plus, Presentation, SunMedium } from "lucide-react";
+import { ArrowUpRight, MoonStar, SunMedium } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 import { useChatContext } from "@/context/ChatContext";
 import { convexApi } from "@/lib/convex-api";
 import { AI_MODELS } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
 
-export function AppHeader() {
+export type AppHeaderWorkspaceProps = {
+  /** Replaces the default logo + tagline block */
+  leading: ReactNode;
+  /** Shown after leading, before theme / AI / account (e.g. panel toggles) */
+  beforeSystemControls?: ReactNode;
+};
+
+type AppHeaderProps = {
+  workspace?: AppHeaderWorkspaceProps;
+};
+
+export function AppHeader({ workspace }: AppHeaderProps) {
   const {
-    mode,
-    setMode,
     availableProviders,
     providerApiKeys,
     setProviderApiKey,
     setProviderEnabled,
-    parallelTargets,
-    setParallelTargets,
   } = useChatContext();
   const { resolvedTheme, setTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  const [openParallel, setOpenParallel] = useState(false);
   const [openProviders, setOpenProviders] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [serverKeyInput, setServerKeyInput] = useState("");
@@ -41,9 +48,6 @@ export function AppHeader() {
 
   const allProviders = useMemo(() => Object.keys(AI_MODELS) as AIProvider[], []);
   const deepDivesActive = location.pathname === "/" || location.pathname.startsWith("/dive/");
-  const slideActive = location.pathname === "/playground" && mode === "slideshow";
-  const parallelActive = location.pathname === "/playground" && mode === "parallel";
-  const playgroundActive = location.pathname === "/playground";
   const isDark = mounted && resolvedTheme === "dark";
 
   useEffect(() => {
@@ -124,150 +128,93 @@ export function AppHeader() {
     }
   };
 
+  const systemControls = (
+    <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={() => setTheme(isDark ? "light" : "dark")}
+        className="h-9 w-9 rounded-full border border-border/70 bg-white/65 text-muted-foreground shadow-sm transition-colors hover:bg-white/85 hover:text-foreground dark:bg-white/[0.05] dark:text-muted-foreground dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] dark:hover:bg-white/[0.08] dark:hover:text-foreground sm:h-10 sm:w-10"
+        aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      >
+        {isDark ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
+      </Button>
+      <Separator orientation="vertical" className="hidden h-6 sm:block" />
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpenProviders(true)}
+        className="rounded-full border-border/80 bg-white/75 px-2.5 text-xs dark:bg-white/[0.06] sm:px-4 sm:text-sm"
+      >
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${serverKeysConfigured ? "bg-[hsl(var(--ai-gpt))]" : "bg-destructive"}`}
+        />
+        <span className="hidden sm:inline">AI Settings</span>
+        <span className="sm:hidden">AI</span>
+      </Button>
+      <Separator orientation="vertical" className="mx-0.5 h-6" />
+      <div className="flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-white/65 shadow-sm dark:bg-white/[0.05] sm:h-10 sm:w-10">
+        <UserButton
+          afterSignOutUrl="/"
+          appearance={{
+            elements: {
+              userButtonAvatarBox: "h-7 w-7 rounded-full sm:h-8 sm:w-8",
+              userButtonTrigger: "focus:shadow-none focus:outline-none",
+            },
+          }}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-border/70 bg-background/75 backdrop-blur-xl supports-[backdrop-filter]:bg-background/65">
-        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className="group flex min-w-0 items-center gap-3 text-left"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-white/70 text-[11px] font-semibold uppercase tracking-[0.22em] text-foreground shadow-sm transition-transform duration-300 group-hover:-translate-y-0.5 dark:bg-white/[0.06] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
-              T
-            </div>
-            <div className="min-w-0">
-              <div className="font-display text-xl leading-none text-foreground">teselix</div>
-              <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                {deepDivesActive ? "Deep Dives workspace" : "Conversation lab"}
-              </div>
-            </div>
-          </button>
-
-          <nav className="hidden items-center gap-2 md:flex">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate("/")}
-              className={`rounded-full px-4 ${deepDivesActive ? "bg-white/80 text-foreground shadow-sm dark:bg-white/[0.08] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]" : "text-muted-foreground"}`}
-            >
-              Deep Dives
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => { setMode("slideshow"); navigate("/playground"); }}
-              className={`rounded-full px-4 ${playgroundActive ? "bg-white/80 text-foreground shadow-sm dark:bg-white/[0.08] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]" : "text-muted-foreground"}`}
-            >
-              <Presentation className="h-4 w-4" />
-              Lab
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setOpenParallel(true)}
-              className={`rounded-full px-4 ${parallelActive ? "bg-white/80 text-foreground shadow-sm dark:bg-white/[0.08] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]" : "text-muted-foreground"}`}
-            >
-              <Boxes className="h-4 w-4" />
-              Parallel
-            </Button>
-          </nav>
-
-          <div className="flex items-center gap-2">
-            <Button
+      <header
+        className={`sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/70 ${
+          workspace ? "shadow-sm shadow-black/[0.03] dark:shadow-black/20" : ""
+        }`}
+      >
+        {workspace ? (
+          <div className="mx-auto flex h-12 w-full max-w-none items-center gap-2 px-3 sm:h-[52px] sm:gap-3 sm:px-4">
+            <div className="min-w-0 flex-1">{workspace.leading}</div>
+            {workspace.beforeSystemControls ? (
+              <div className="flex shrink-0 items-center gap-1">{workspace.beforeSystemControls}</div>
+            ) : null}
+            {systemControls}
+          </div>
+        ) : (
+          <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
+            <button
               type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setTheme(isDark ? "light" : "dark")}
-              className="h-10 w-10 rounded-full border border-border/70 bg-white/65 text-muted-foreground shadow-sm transition-colors hover:bg-white/85 hover:text-foreground dark:bg-white/[0.05] dark:text-muted-foreground dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] dark:hover:bg-white/[0.08] dark:hover:text-foreground"
-              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              onClick={() => navigate("/")}
+              className="group flex min-w-0 items-center gap-3 text-left"
             >
-              {isDark ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
-            </Button>
-            <Separator orientation="vertical" className="hidden h-6 md:block" />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setOpenProviders(true)}
-              className="rounded-full border-border/80 bg-white/75 px-4 dark:bg-white/[0.06]"
-            >
-              <span
-                className={`h-2 w-2 rounded-full ${serverKeysConfigured ? "bg-[hsl(var(--ai-gpt))]" : "bg-destructive"}`}
-              />
-              AI Settings
-            </Button>
-            <Separator orientation="vertical" className="h-6 mx-1" />
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-white/65 shadow-sm dark:bg-white/[0.05]">
-              <UserButton 
-                afterSignOutUrl="/"
-                appearance={{
-                  elements: {
-                    userButtonAvatarBox: "h-8 w-8 rounded-full",
-                    userButtonTrigger: "focus:shadow-none focus:outline-none",
-                  }
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      </header>
+              <div className="min-w-0">
+                <BrandLogo
+                  className="transition-transform duration-300 group-hover:-translate-y-0.5"
+                  labelClassName="tracking-[0.02em]"
+                />
+                <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                  {deepDivesActive ? "Projects and threads" : "Structured model workflows"}
+                </div>
+              </div>
+            </button>
 
-      <Dialog open={openParallel} onOpenChange={setOpenParallel}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Parallel Mode</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="text-sm text-muted-foreground">
-              Select which AIs to ask.
+            <div
+              className={`hidden rounded-full border px-4 py-2 text-sm md:block ${
+                deepDivesActive
+                  ? "border-border/70 bg-white/80 text-foreground shadow-sm dark:bg-white/[0.08]"
+                  : "border-transparent text-muted-foreground"
+              }`}
+            >
+              Projects
             </div>
-            <div className="space-y-2">
-              {availableProviders.map(p => {
-                const model = AI_MODELS[p];
-                const checked = parallelTargets.includes(p);
-                return (
-                  <label
-                    key={p}
-                    className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2 cursor-pointer hover:bg-accent transition-colors"
-                  >
-                    <Checkbox
-                      checked={checked}
-                      onCheckedChange={() => {
-                        setParallelTargets(checked ? parallelTargets.filter(x => x !== p) : [...parallelTargets, p]);
-                      }}
-                    />
-                    <div
-                      className="flex h-8 w-8 items-center justify-center rounded-md text-xs font-semibold"
-                      style={{ backgroundColor: `hsl(var(--${model.color}) / 0.18)`, color: `hsl(var(--${model.color}))` }}
-                    >
-                      {model.name.slice(0, 1)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-foreground">{model.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">{model.fullName}</div>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <Button variant="outline" onClick={() => setOpenParallel(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => {
-                  if (parallelTargets.length === 0) return;
-                  setMode("parallel");
-                  navigate("/playground");
-                  setOpenParallel(false);
-                }}
-              >
-                Enter
-              </Button>
-            </div>
+
+            {systemControls}
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+      </header>
 
       <Dialog open={openProviders} onOpenChange={setOpenProviders}>
         <DialogContent className="sm:max-w-2xl">
@@ -278,10 +225,10 @@ export function AppHeader() {
             <div className="rounded-[24px] border border-border/80 bg-card/70 p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Deep Dives</div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Projects</div>
                   <div className="mt-2 text-lg text-foreground">Server Gemini key</div>
                   <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-                    Deep Dives can use Google Gemini directly. Saving it here stores it in the local app database on this machine.
+                    Projects can use Google Gemini directly. Saving it here stores it in the local app database on this machine.
                   </p>
                 </div>
                 <div className="rounded-full border border-border/80 bg-background/70 px-3 py-1 text-xs text-muted-foreground">
@@ -325,10 +272,10 @@ export function AppHeader() {
             <div className="rounded-[24px] border border-border/80 bg-card/70 p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Deep Dives</div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Projects</div>
                   <div className="mt-2 text-lg text-foreground">Server OpenRouter key</div>
                   <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-                    Deep Dives uses a server-side OpenRouter key. Saving it here stores it in the local app database on this machine and makes it available immediately.
+                    Projects use a server-side OpenRouter key. Saving it here stores it in the local app database on this machine and makes it available immediately.
                   </p>
                 </div>
                 <div className="rounded-full border border-border/80 bg-background/70 px-3 py-1 text-xs text-muted-foreground">

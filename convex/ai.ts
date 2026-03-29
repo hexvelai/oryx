@@ -286,8 +286,8 @@ async function runOpenRouterChatCompletion(args: {
     headers: {
       Authorization: `Bearer ${args.apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://teselix.local",
-      "X-Title": "teselix",
+      "HTTP-Referer": "https://oryx.local",
+      "X-Title": "oryx",
     },
     body: JSON.stringify({
       model: MODEL_BY_PROVIDER[args.provider],

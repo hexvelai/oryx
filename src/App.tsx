@@ -13,6 +13,7 @@ import DeepDives from "./pages/DeepDives.tsx";
 import Invite from "./pages/Invite.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { Button } from "./components/ui/button";
+import { BrandLogo } from "./components/brand/BrandLogo";
 
 const queryClient = new QueryClient();
 
@@ -32,9 +33,12 @@ const App = () => (
             <div className="app-canvas flex min-h-screen items-center justify-center bg-background px-6">
               <div className="surface-panel w-full max-w-md rounded-[32px] p-10 text-center shadow-xl">
                 <SignedOut>
-                  <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Welcome to Teselix</div>
-                  <h1 className="mt-4 text-4xl font-medium tracking-tight text-foreground">Sign in to start a Deep Dive.</h1>
-                  <p className="mt-4 text-sm leading-7 text-muted-foreground">Collaborate with multiple AI models in a single workspace.</p>
+                  <div className="flex justify-center">
+                    <BrandLogo />
+                  </div>
+                  <div className="mt-6 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Welcome to oryx</div>
+                  <h1 className="mt-4 text-4xl font-medium tracking-tight text-foreground">Sign in to start a project.</h1>
+                  <p className="mt-4 text-sm leading-7 text-muted-foreground">Organize work into projects and threads, compare models, and keep every branch of thinking in one place.</p>
                   <div className="mt-10">
                     <SignInButton mode="modal" forceRedirectUrl={window.location.pathname}>
                       <Button size="lg" className="w-full rounded-full bg-foreground text-background hover:bg-foreground/90 py-6 text-base font-medium transition-all hover:scale-[1.02]">

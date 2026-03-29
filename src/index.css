@@ -101,42 +101,9 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply min-h-screen bg-background text-foreground antialiased;
     font-family: "Instrument Sans", system-ui, sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
-    background-image:
-      radial-gradient(circle at top left, rgba(144, 117, 93, 0.09), transparent 28%),
-      radial-gradient(circle at top right, rgba(73, 106, 122, 0.08), transparent 24%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0));
-    min-height: 100vh;
-  }
-
-  .dark body {
-    background-image:
-      radial-gradient(circle at top left, rgba(185, 162, 137, 0.09), transparent 30%),
-      radial-gradient(circle at top right, rgba(81, 104, 126, 0.14), transparent 24%),
-      linear-gradient(180deg, rgba(18, 22, 31, 0.94), rgba(10, 12, 18, 1));
-  }
-
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background-image:
-      linear-gradient(rgba(72, 57, 44, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(72, 57, 44, 0.03) 1px, transparent 1px);
-    background-size: 28px 28px;
-    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.18), transparent 70%);
-    opacity: 0.35;
-  }
-
-  .dark body::before {
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.45), transparent 72%);
-    opacity: 0.26;
   }
 
   h1,
@@ -188,53 +155,25 @@
 
   .app-canvas {
     position: relative;
-    isolation: isolate;
-  }
-
-  .app-canvas::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background:
-      radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.75), transparent 30%),
-      radial-gradient(circle at 80% 0%, rgba(255, 255, 255, 0.55), transparent 28%);
-    opacity: 0.9;
-    z-index: -1;
-  }
-
-  .dark .app-canvas::after {
-    background:
-      radial-gradient(circle at 18% 18%, rgba(118, 129, 150, 0.14), transparent 28%),
-      radial-gradient(circle at 82% 0%, rgba(196, 170, 142, 0.08), transparent 26%);
-    opacity: 1;
   }
 
   .surface-panel {
-    background: rgba(255, 255, 255, 0.72);
-    backdrop-filter: blur(18px);
-    border: 1px solid hsl(var(--border) / 0.75);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.7) inset,
-      0 18px 40px rgba(58, 43, 31, 0.06);
+    @apply bg-card text-card-foreground;
+    border: 1px solid hsl(var(--border));
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   }
 
   .dark .surface-panel {
-    background: linear-gradient(180deg, rgba(22, 25, 33, 0.9), rgba(15, 18, 25, 0.86));
-    border: 1px solid hsl(var(--border) / 0.92);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.03) inset,
-      0 18px 48px rgba(0, 0, 0, 0.32);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
   }
 
   .surface-quiet {
-    background: rgba(250, 246, 240, 0.72);
-    border: 1px solid hsl(var(--border) / 0.85);
+    @apply bg-muted/50;
+    border: 1px solid hsl(var(--border));
   }
 
   .dark .surface-quiet {
-    background: rgba(22, 25, 33, 0.58);
-    border: 1px solid hsl(var(--border) / 0.92);
+    @apply bg-muted/30;
   }
 }
 

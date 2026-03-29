@@ -56,7 +56,7 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled,
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-[24px] border border-border/80 bg-white/80 p-3 shadow-[0_1px_0_rgba(255,255,255,0.7)_inset] dark:bg-white/[0.04] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3">
       {reply ? (
         <div className="flex items-start justify-between gap-2 rounded-[18px] border border-border/70 bg-white/60 px-3 py-2 text-xs dark:bg-white/[0.03]">
           <button

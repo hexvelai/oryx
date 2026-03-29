@@ -18,7 +18,7 @@ function inferSetupHint(message: string) {
     message.includes("deployment") ||
     message.includes("Convex")
   ) {
-    return "Your Convex backend likely hasn't been pushed yet. Run `npx convex dev` or `npx convex deploy` in this repo so the new backend functions exist in the `teselix` project.";
+    return "Your Convex backend likely hasn't been pushed yet. Run `npx convex dev` or `npx convex deploy` in this repo so the new backend functions exist in the `oryx` project.";
   }
 
   return "Check the browser console for the exact runtime error, then we can tighten the failing path.";

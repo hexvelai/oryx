@@ -1,16 +1,27 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Clock3 } from "lucide-react";
+import { ArrowRight, Clock3, MoreHorizontal, PencilLine, Trash2 } from "lucide-react";
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
 import { AI_MODELS } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
 import { convexApi } from "@/lib/convex-api";
 import { DEEP_DIVE_PROVIDERS, type DeepDiveUIMessage } from "@/lib/deep-dive-types";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 function formatRelative(ts: number) {
   const diff = Date.now() - ts;
@@ -25,10 +36,11 @@ function formatRelative(ts: number) {
 
 function lastMessagePreview(messages: DeepDiveUIMessage[]) {
   const last = messages[messages.length - 1];
-  const text = last?.parts
-    ?.filter(part => part.type === "text" || part.type === "reasoning")
-    .map(part => part.text)
-    .join("\n") ?? "";
+  const text =
+    last?.parts
+      ?.filter((part) => part.type === "text" || part.type === "reasoning")
+      .map((part) => part.text)
+      .join("\n") ?? "";
   const firstLine = text.split("\n")[0]?.trim() ?? "";
   return firstLine || "No messages yet";
 }
@@ -38,97 +50,61 @@ export default function DeepDives() {
   const deepDives = useConvexQuery(convexApi.deepDives.list, {}) ?? [];
   const myInvites = useConvexQuery(convexApi.deepDives.listMyInvites, {}) ?? [];
   const createDeepDive = useConvexMutation(convexApi.deepDives.createDeepDive);
-  const createInvite = useConvexMutation(convexApi.deepDives.createInvite);
   const acceptInvite = useConvexMutation(convexApi.deepDives.acceptInvite);
   const declineInvite = useConvexMutation(convexApi.deepDives.declineInvite);
+  const updateDeepDiveTitle = useConvexMutation(convexApi.deepDives.updateDeepDiveTitle);
+  const deleteDeepDive = useConvexMutation(convexApi.deepDives.deleteDeepDive);
   const availableProviders = DEEP_DIVE_PROVIDERS;
 
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<1 | 2>(1);
-  const [selectedProviders, setSelectedProviders] = useState<AIProvider[]>(availableProviders.length ? availableProviders : ["gpt"]);
-  const [inviteText, setInviteText] = useState("");
-  const [pendingDeepDiveId, setPendingDeepDiveId] = useState<string | null>(null);
-  const [pendingInviteToken, setPendingInviteToken] = useState<string | null>(null);
+  const [projectTitle, setProjectTitle] = useState("");
+  const [selectedProviders, setSelectedProviders] = useState<AIProvider[]>(
+    availableProviders.length ? availableProviders : ["gpt"],
+  );
   const [creating, setCreating] = useState(false);
-  const [sendingInvites, setSendingInvites] = useState(false);
 
-  const shareLink = useMemo(() => {
-    if (!pendingInviteToken) return "";
-    return `${window.location.origin}/invite/${pendingInviteToken}`;
-  }, [pendingInviteToken]);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameDiveId, setRenameDiveId] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [savingRename, setSavingRename] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const onNew = () => {
     setOpen(true);
-    setStep(1);
-    setInviteText("");
-    setPendingDeepDiveId(null);
-    setPendingInviteToken(null);
+    setProjectTitle("");
     setSelectedProviders(availableProviders.length ? availableProviders : ["gpt"]);
   };
 
   const onClose = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) {
-      setStep(1);
-      setInviteText("");
-      setPendingDeepDiveId(null);
-      setPendingInviteToken(null);
+      setProjectTitle("");
       setSelectedProviders(availableProviders.length ? availableProviders : ["gpt"]);
     }
   };
 
-  const toggleProvider = (p: AIProvider) => {
-    setSelectedProviders(prev => (prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]));
+  const toggleProvider = (provider: AIProvider) => {
+    setSelectedProviders((prev) =>
+      prev.includes(provider) ? prev.filter((value) => value !== provider) : [...prev, provider],
+    );
   };
 
-  const goStep2 = async () => {
+  const createProject = async () => {
+    if (selectedProviders.length === 0) return;
     setCreating(true);
     try {
-      const deepDiveId = await createDeepDive({ providers: selectedProviders, title: "New Deep Dive" });
-      if (!deepDiveId) return;
-      setPendingDeepDiveId(String(deepDiveId));
-      const invite = await createInvite({ deepDiveId: String(deepDiveId), role: "editor" });
-      setPendingInviteToken(invite.token);
-      setStep(2);
+      const deepDiveId = await createDeepDive({
+        providers: selectedProviders,
+        title: projectTitle.trim() || "New Project",
+      });
+      onClose(false);
+      navigate(`/dive/${deepDiveId}`);
     } finally {
       setCreating(false);
-    }
-  };
-
-  const openDive = () => {
-    if (!pendingDeepDiveId) return;
-    onClose(false);
-    navigate(`/dive/${pendingDeepDiveId}`);
-  };
-
-  const copyLink = async () => {
-    if (!shareLink) return;
-    await navigator.clipboard.writeText(shareLink);
-  };
-
-  const sendEmailInvites = async () => {
-    if (!pendingDeepDiveId) return;
-    const emails = inviteText
-      .split(/[,\s]+/g)
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .filter((value) => value.includes("@"));
-    if (emails.length === 0) return;
-
-    setSendingInvites(true);
-    try {
-      await Promise.all(
-        emails.map((email) =>
-          createInvite({
-            deepDiveId: pendingDeepDiveId,
-            email,
-            role: "editor",
-          }),
-        ),
-      );
-      setInviteText("");
-    } finally {
-      setSendingInvites(false);
     }
   };
 
@@ -141,186 +117,233 @@ export default function DeepDives() {
     await declineInvite({ token });
   };
 
+  const openRename = (dive: { id: string; title: string }) => {
+    setRenameDiveId(dive.id);
+    setRenameTitle(dive.title);
+    setRenameError(null);
+    setRenameOpen(true);
+  };
+
+  const submitRename = async () => {
+    if (!renameDiveId) return;
+    setRenameError(null);
+    setSavingRename(true);
+    try {
+      await updateDeepDiveTitle({
+        deepDiveId: renameDiveId,
+        title: renameTitle,
+      });
+      setRenameOpen(false);
+      setRenameDiveId(null);
+      setRenameTitle("");
+    } catch (e) {
+      setRenameError(e instanceof Error ? e.message : "Could not rename project");
+    } finally {
+      setSavingRename(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await deleteDeepDive({ deepDiveId: deleteTarget.id });
+      setDeleteTarget(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Could not delete project");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="app-canvas min-h-screen bg-background">
       <AppHeader />
 
-      <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 pb-12 pt-8 sm:px-6">
+      <main className="mx-auto w-full max-w-3xl px-4 pb-16 pt-10 sm:px-6">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="font-display text-3xl tracking-tight text-foreground sm:text-4xl">Projects</h1>
+            <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">
+              Open a project to work with the agent. Threads and team notes live inside each project.
+            </p>
+          </div>
+          <Button onClick={onNew} className="h-10 shrink-0 rounded-md px-4">
+            New project
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </Button>
+        </header>
+
         {myInvites.length ? (
-          <section className="space-y-4">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Invitations</div>
-              <h2 className="mt-2 text-2xl text-foreground">Join a workspace</h2>
-            </div>
-            <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+          <section className="mt-10 space-y-3">
+            <h2 className="text-sm font-medium text-foreground">Invitations</h2>
+            <ul className="space-y-2">
               {myInvites.map((invite) => (
-                <div
+                <li
                   key={invite.token}
-                  className="surface-panel rounded-[24px] p-4"
+                  className="surface-panel flex flex-col gap-3 rounded-lg p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Deep Dive</div>
-                  <div className="mt-2 truncate text-[22px] leading-none text-foreground">{invite.title}</div>
-                  <div className="mt-3 text-sm text-muted-foreground">Role: <span className="text-foreground">{invite.role}</span></div>
-                  <div className="mt-4 flex gap-2">
-                    <Button className="h-10 flex-1 rounded-full" onClick={() => void accept(invite.token)}>
-                      Accept invite
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-foreground">{invite.title}</p>
+                    <p className="text-xs text-muted-foreground">Role: {invite.role}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="rounded-md" onClick={() => void accept(invite.token)}>
+                      Accept
                     </Button>
-                    <Button variant="outline" className="h-10 flex-1 rounded-full" onClick={() => void decline(invite.token)}>
-                      Deny
+                    <Button size="sm" variant="outline" className="rounded-md" onClick={() => void decline(invite.token)}>
+                      Decline
                     </Button>
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           </section>
         ) : null}
 
-        <section className="relative space-y-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Open work</div>
-              <h1 className="mt-2 text-3xl text-foreground sm:text-4xl">Recent projects</h1>
-            </div>
-            {deepDives.length > 0 ? (
-              <Button
-                onClick={onNew}
-                className="h-11 rounded-full bg-primary px-5 text-sm text-primary-foreground shadow-sm"
-              >
-                Create Deep Dive
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            ) : null}
-          </div>
+        <section className="mt-10">
+          <h2 className="text-sm font-medium text-foreground">Your projects</h2>
 
           {deepDives.length === 0 ? (
-            <div className="relative min-h-[340px] rounded-[28px] border border-dashed border-border/70 bg-white/40 p-8 dark:bg-white/[0.03]">
-              <div className="absolute right-6 top-6 z-10 hidden sm:block">
-                <Button
-                  onClick={onNew}
-                  className="h-11 rounded-full bg-primary px-5 text-sm text-primary-foreground shadow-sm"
-                >
-                  Create Deep Dive
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="pointer-events-none absolute inset-0 grid place-items-center px-8">
-                <div className="max-w-md text-center">
-                  <div className="text-2xl text-foreground">Click here to start your first project</div>
-                  <div className="mt-2 text-sm leading-7 text-muted-foreground">Create a Deep Dive to start chatting and collaborating.</div>
-                </div>
-              </div>
-              <div className="pointer-events-none absolute right-20 top-14 hidden text-foreground/60 sm:block">
-                <svg width="260" height="140" viewBox="0 0 260 140" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <defs>
-                    <marker id="empty-state-arrowhead" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto" markerUnits="strokeWidth">
-                      <path
-                        d="M1 1 L10 6 L1 11"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </marker>
-                  </defs>
-                  <path
-                    d="M16 128 C 86 152, 150 132, 196 98 C 224 76, 236 56, 244 38"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeDasharray="2 8"
-                    markerEnd="url(#empty-state-arrowhead)"
-                  />
-                </svg>
-              </div>
+            <div className="surface-panel mt-4 rounded-lg p-8 text-center">
+              <p className="text-foreground">No projects yet.</p>
+              <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
+                Create one to get a first thread and start chatting with the agent.
+              </p>
+              <Button onClick={onNew} className="mt-6 rounded-md">
+                Create project
+              </Button>
             </div>
-          ) : null}
+          ) : (
+            <ul className="mt-4 divide-y divide-border rounded-lg border border-border bg-card">
+              {deepDives.map((dive) => {
+                const lastThread = dive.threads.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0];
+                const preview = lastThread ? lastMessagePreview(lastThread.messages) : "No messages yet";
+                const canRename = dive.myRole === "owner" || dive.myRole === "editor";
+                const canDelete = dive.myRole === "owner";
 
-          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-            {deepDives.map(dive => {
-              const lastThread = dive.threads.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0];
-              const preview = lastThread ? lastMessagePreview(lastThread.messages) : "No messages yet";
-              return (
-                <button
-                  key={dive.id}
-                  type="button"
-                  onClick={() => navigate(`/dive/${dive.id}`)}
-                  className="surface-panel group rounded-[24px] p-4 text-left transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(58,43,31,0.08)] dark:hover:shadow-[0_20px_48px_rgba(0,0,0,0.34)]"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Project</div>
-                      <h3 className="mt-2 truncate text-[24px] leading-none text-foreground">{dive.title}</h3>
-                    </div>
-                    <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/80 px-2.5 py-1 text-[11px] text-muted-foreground dark:bg-white/[0.06]">
-                      <Clock3 className="h-3.5 w-3.5" />
-                      {formatRelative(dive.updatedAt)}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {dive.providers.map(provider => (
-                      <div
-                        key={provider}
-                        className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-white/70 px-2.5 py-1 text-[11px] dark:bg-white/[0.05]"
-                      >
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
-                        />
-                        <span className="text-foreground">{AI_MODELS[provider].name}</span>
+                return (
+                  <li key={dive.id} className="flex items-stretch gap-0">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/dive/${dive.id}`)}
+                      className="min-w-0 flex-1 px-4 py-4 text-left transition-colors hover:bg-muted/50"
+                    >
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1">
+                          <Clock3 className="h-3.5 w-3.5" />
+                          {formatRelative(dive.updatedAt)}
+                        </span>
+                        <span>·</span>
+                        <span>
+                          {dive.threads.length} thread{dive.threads.length === 1 ? "" : "s"}
+                        </span>
                       </div>
-                    ))}
-                  </div>
+                      <h3 className="mt-1 truncate text-lg font-medium text-foreground">{dive.title}</h3>
+                      <p className="mt-1 truncate text-sm text-muted-foreground">{preview}</p>
+                      <div className="mt-2 flex items-center gap-1.5">
+                        {dive.providers.map((provider) => (
+                          <span
+                            key={provider}
+                            className="h-2 w-2 rounded-full"
+                            title={AI_MODELS[provider].name}
+                            style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                          />
+                        ))}
+                      </div>
+                    </button>
 
-                  <div className="mt-4 flex items-center justify-between border-t border-border/60 pt-3">
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Threads</div>
-                    <div className="text-sm font-medium text-foreground">{dive.threads.length}</div>
-                  </div>
-
-                  <div className="mt-4 rounded-[20px] border border-border/70 bg-white/55 px-4 py-3.5 dark:bg-white/[0.04]">
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Latest thread</div>
-                    <div className="mt-2 truncate text-sm font-medium text-foreground">
-                      {lastThread?.title ?? "Thread 1"}
-                    </div>
-                    <p className="mt-1.5 truncate text-sm text-muted-foreground">
-                      {preview}
-                    </p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                    {canRename || canDelete ? (
+                      <div className="flex shrink-0 items-center border-l border-border pr-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-10 w-10 rounded-none text-muted-foreground hover:text-foreground"
+                              aria-label="Project actions"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            {canRename ? (
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  openRename(dive);
+                                }}
+                              >
+                                <PencilLine className="mr-2 h-4 w-4" />
+                                Rename
+                              </DropdownMenuItem>
+                            ) : null}
+                            {canDelete ? (
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setDeleteError(null);
+                                  setDeleteTarget({ id: dive.id, title: dive.title });
+                                }}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            ) : null}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
       </main>
 
       <Dialog open={open} onOpenChange={onClose}>
-        <DialogContent className="border-border/70 bg-[rgba(255,255,255,0.92)] backdrop-blur-xl dark:bg-[rgba(18,22,30,0.94)] sm:max-w-xl">
+        <DialogContent className="border-border bg-background sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-2xl">
-              {step === 1 ? "New Deep Dive" : "Share this workspace"}
-            </DialogTitle>
+            <DialogTitle>New project</DialogTitle>
           </DialogHeader>
 
-          {step === 1 && (
-            <div className="space-y-4">
-              <div className="text-sm leading-6 text-muted-foreground">
-                Pick the models you want in the project from the beginning. You can branch conversations later without
-                losing the original thread.
-              </div>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="new-project-name" className="text-sm font-medium text-foreground">
+                Name
+              </label>
+              <Input
+                id="new-project-name"
+                value={projectTitle}
+                onChange={(event) => setProjectTitle(event.target.value)}
+                placeholder="e.g. Q1 research"
+                className="rounded-md"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-foreground">Models</div>
               <div className="space-y-2">
-                {availableProviders.map(provider => {
+                {availableProviders.map((provider) => {
                   const model = AI_MODELS[provider];
                   const checked = selectedProviders.includes(provider);
                   return (
                     <label
                       key={provider}
-                      className="flex items-center gap-3 rounded-2xl border border-border/80 bg-white/80 px-4 py-3 transition-colors hover:bg-accent/70 dark:bg-white/[0.05]"
+                      className="flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
                     >
                       <Checkbox checked={checked} onCheckedChange={() => toggleProvider(provider)} />
                       <div
-                        className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold"
-                        style={{ backgroundColor: `hsl(var(--${model.color}) / 0.14)`, color: `hsl(var(--${model.color}))` }}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                        style={{
+                          backgroundColor: `hsl(var(--${model.color}) / 0.14)`,
+                          color: `hsl(var(--${model.color}))`,
+                        }}
                       >
                         {model.name.slice(0, 1)}
                       </div>
@@ -333,60 +356,90 @@ export default function DeepDives() {
                 })}
               </div>
             </div>
-          )}
+          </div>
 
-          {step === 2 && (
-            <div className="space-y-4">
-              <div className="text-sm leading-6 text-muted-foreground">
-                Invite collaborators by email or share the link below. Anyone with the link can join with the configured
-                access level.
-              </div>
-              <Input
-                value={inviteText}
-                onChange={(e) => setInviteText(e.target.value)}
-                placeholder="Emails (comma-separated)"
-                className="rounded-2xl bg-white/80 dark:bg-white/[0.05]"
-              />
-              <Button
-                variant="outline"
-                onClick={sendEmailInvites}
-                disabled={!pendingDeepDiveId || sendingInvites || inviteText.trim().length === 0}
-                className="w-full rounded-full"
-              >
-                Create invites
-              </Button>
-              <div className="rounded-2xl border border-border/80 bg-white/75 px-4 py-3 dark:bg-white/[0.05]">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Share link</div>
-                <div className="mt-2 break-all text-sm text-foreground">{shareLink}</div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="gap-2">
-            {step === 1 && (
-              <>
-                <Button variant="outline" onClick={() => onClose(false)} className="rounded-full">
-                  Cancel
-                </Button>
-                <Button onClick={goStep2} disabled={selectedProviders.length === 0 || creating} className="rounded-full">
-                  Continue
-                </Button>
-              </>
-            )}
-
-            {step === 2 && (
-              <>
-                <Button variant="outline" onClick={copyLink} className="rounded-full">
-                  Copy link
-                </Button>
-                <Button onClick={openDive} className="rounded-full">
-                  Open Deep Dive
-                </Button>
-              </>
-            )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => onClose(false)} className="rounded-md">
+              Cancel
+            </Button>
+            <Button onClick={() => void createProject()} disabled={selectedProviders.length === 0 || creating} className="rounded-md">
+              Create
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={renameOpen}
+        onOpenChange={(next) => {
+          setRenameOpen(next);
+          if (!next) {
+            setRenameDiveId(null);
+            setRenameTitle("");
+            setRenameError(null);
+          }
+        }}
+      >
+        <DialogContent className="border-border bg-background sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename project</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              value={renameTitle}
+              onChange={(e) => setRenameTitle(e.target.value)}
+              placeholder="Project name"
+              className="rounded-md"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void submitRename();
+              }}
+            />
+            {renameError ? <p className="text-sm text-destructive">{renameError}</p> : null}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" className="rounded-md" onClick={() => setRenameOpen(false)} disabled={savingRename}>
+              Cancel
+            </Button>
+            <Button className="rounded-md" onClick={() => void submitRename()} disabled={savingRename || !renameTitle.trim()}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) {
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="border-border bg-background">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes <span className="font-medium text-foreground">{deleteTarget?.title}</span> and all threads,
+              files, invites, and notes in it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? <p className="text-sm text-destructive">{deleteError}</p> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDelete();
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
