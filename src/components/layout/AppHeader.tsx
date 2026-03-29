@@ -47,7 +47,8 @@ export function AppHeader({ workspace }: AppHeaderProps) {
   const [clearingGeminiKey, setClearingGeminiKey] = useState(false);
 
   const allProviders = useMemo(() => Object.keys(AI_MODELS) as AIProvider[], []);
-  const deepDivesActive = location.pathname === "/" || location.pathname.startsWith("/dive/");
+  const deepDivesActive =
+    location.pathname === "/" || location.pathname.startsWith("/dive/");
   const isDark = mounted && resolvedTheme === "dark";
 
   useEffect(() => {
@@ -128,51 +129,73 @@ export function AppHeader({ workspace }: AppHeaderProps) {
     }
   };
 
+  const themeToggleButton = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className="h-9 w-9 rounded-full border border-border/70 bg-white/65 text-muted-foreground shadow-sm transition-colors hover:bg-white/85 hover:text-foreground dark:bg-white/[0.05] dark:text-muted-foreground dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] dark:hover:bg-white/[0.08] dark:hover:text-foreground sm:h-10 sm:w-10"
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {isDark ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
+    </Button>
+  );
+
+  const aiSettingsButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => setOpenProviders(true)}
+      className="rounded-full border-border/80 bg-white/75 px-2.5 text-xs dark:bg-white/[0.06] sm:px-4 sm:text-sm"
+    >
+      <span
+        className={`h-2 w-2 shrink-0 rounded-full ${serverKeysConfigured ? "bg-[hsl(var(--ai-gpt))]" : "bg-destructive"}`}
+      />
+      <span className="hidden sm:inline">AI Settings</span>
+      <span className="sm:hidden">AI</span>
+    </Button>
+  );
+
+  const userAccountControl = (
+    <div className="flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-white/65 shadow-sm dark:bg-white/[0.05] sm:h-10 sm:w-10">
+      <UserButton
+        afterSignOutUrl="/"
+        appearance={{
+          elements: {
+            userButtonAvatarBox: "h-7 w-7 rounded-full sm:h-8 sm:w-8",
+            userButtonTrigger: "focus:shadow-none focus:outline-none",
+          },
+        }}
+      />
+    </div>
+  );
+
   const systemControls = (
     <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        onClick={() => setTheme(isDark ? "light" : "dark")}
-        className="h-9 w-9 rounded-full border border-border/70 bg-white/65 text-muted-foreground shadow-sm transition-colors hover:bg-white/85 hover:text-foreground dark:bg-white/[0.05] dark:text-muted-foreground dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] dark:hover:bg-white/[0.08] dark:hover:text-foreground sm:h-10 sm:w-10"
-        aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      >
-        {isDark ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
-      </Button>
+      {themeToggleButton}
       <Separator orientation="vertical" className="hidden h-6 sm:block" />
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setOpenProviders(true)}
-        className="rounded-full border-border/80 bg-white/75 px-2.5 text-xs dark:bg-white/[0.06] sm:px-4 sm:text-sm"
-      >
-        <span
-          className={`h-2 w-2 shrink-0 rounded-full ${serverKeysConfigured ? "bg-[hsl(var(--ai-gpt))]" : "bg-destructive"}`}
-        />
-        <span className="hidden sm:inline">AI Settings</span>
-        <span className="sm:hidden">AI</span>
-      </Button>
+      {aiSettingsButton}
       <Separator orientation="vertical" className="mx-0.5 h-6" />
-      <div className="flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-white/65 shadow-sm dark:bg-white/[0.05] sm:h-10 sm:w-10">
-        <UserButton
-          afterSignOutUrl="/"
-          appearance={{
-            elements: {
-              userButtonAvatarBox: "h-7 w-7 rounded-full sm:h-8 sm:w-8",
-              userButtonTrigger: "focus:shadow-none focus:outline-none",
-            },
-          }}
-        />
-      </div>
+      {userAccountControl}
+    </div>
+  );
+
+  const homeTrailingControls = (
+    <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+      {themeToggleButton}
+      <Separator orientation="vertical" className="mx-0.5 h-6" />
+      {userAccountControl}
     </div>
   );
 
   return (
     <>
       <header
-        className={`sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/70 ${
-          workspace ? "shadow-sm shadow-black/[0.03] dark:shadow-black/20" : ""
+        className={`sticky z-40 overflow-visible border-b border-border/70 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/70 ${
+          workspace
+            ? "top-0 shadow-sm shadow-black/[0.03] dark:shadow-black/20"
+            : "top-2 mt-2 sm:top-3 sm:mt-3"
         }`}
       >
         {workspace ? (
@@ -184,34 +207,17 @@ export function AppHeader({ workspace }: AppHeaderProps) {
             {systemControls}
           </div>
         ) : (
-          <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <div className="mx-auto grid w-full max-w-[1600px] grid-cols-[1fr_auto_1fr] items-center gap-4 px-4 py-3.5 sm:px-6 sm:py-4">
+            <div className="flex min-w-0 justify-self-start">{aiSettingsButton}</div>
             <button
               type="button"
               onClick={() => navigate("/")}
-              className="group flex min-w-0 items-center gap-3 text-left"
+              className="group flex justify-center justify-self-center overflow-visible text-center transition-transform duration-300 hover:-translate-y-0.5"
+              aria-label="Home"
             >
-              <div className="min-w-0">
-                <BrandLogo
-                  className="transition-transform duration-300 group-hover:-translate-y-0.5"
-                  labelClassName="tracking-[0.02em]"
-                />
-                <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                  {deepDivesActive ? "Projects and threads" : "Structured model workflows"}
-                </div>
-              </div>
+              <BrandLogo large showLabel={false} className="gap-0" />
             </button>
-
-            <div
-              className={`hidden rounded-full border px-4 py-2 text-sm md:block ${
-                deepDivesActive
-                  ? "border-border/70 bg-white/80 text-foreground shadow-sm dark:bg-white/[0.08]"
-                  : "border-transparent text-muted-foreground"
-              }`}
-            >
-              Projects
-            </div>
-
-            {systemControls}
+            <div className="flex min-w-0 justify-self-end">{homeTrailingControls}</div>
           </div>
         )}
       </header>

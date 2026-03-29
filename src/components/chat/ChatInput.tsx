@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import { floatingRaisedSurfaceClassName } from "@/lib/floating-surface";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -56,9 +58,9 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled,
   };
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3">
+    <div className={cn(floatingRaisedSurfaceClassName(true), "flex flex-col gap-2 p-3")}>
       {reply ? (
-        <div className="flex items-start justify-between gap-2 rounded-[18px] border border-border/70 bg-white/60 px-3 py-2 text-xs dark:bg-white/[0.03]">
+        <div className="flex items-start justify-between gap-2 rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-xs shadow-[inset_0_1px_0_0_rgba(255,255,255,0.35)] dark:bg-background/20 dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]">
           <button
             type="button"
             onClick={reply.onClick}
@@ -76,6 +78,7 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled,
       <div className="flex items-end gap-3">
         <Textarea
           ref={inputRef}
+          variant="plain"
           value={actualValue}
           onChange={e => {
             const next = e.target.value;
@@ -90,14 +93,14 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled,
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
-          className="min-h-0 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm leading-7 shadow-none focus-visible:ring-0"
+          className="min-h-0 flex-1 resize-none px-1 py-2 leading-7 shadow-none"
           style={{ maxHeight: 120, height: "auto" }}
         />
         <Button
           size="icon"
           onClick={handleSubmit}
           disabled={!actualValue.trim() || disabled}
-          className="h-11 w-11 shrink-0 rounded-full dark:bg-primary dark:text-primary-foreground"
+          className="h-11 w-11 shrink-0 rounded-full focus-visible:ring-offset-0 dark:bg-primary dark:text-primary-foreground"
         >
           <Send className="w-4 h-4" />
         </Button>

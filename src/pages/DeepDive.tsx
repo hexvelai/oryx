@@ -28,6 +28,7 @@ import { BrandLogo } from "@/components/brand/BrandLogo";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { usePersistedBoolean } from "@/hooks/usePersistedBoolean";
 import { cn } from "@/lib/utils";
+import { floatingRaisedSurfaceClassName } from "@/lib/floating-surface";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -746,9 +747,14 @@ export default function DeepDive() {
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch overflow-hidden bg-background">
           <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2 sm:px-5">
+          <div
+            className={cn(
+              floatingRaisedSurfaceClassName(false),
+              "mb-3 mt-3 flex shrink-0 items-center justify-between gap-2 px-4 py-2.5 sm:px-5",
+            )}
+          >
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-              <span className="hidden shrink-0 rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:inline-block">
+              <span className="hidden shrink-0 rounded-md border border-border/50 bg-background/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.35)] sm:inline-block dark:bg-background/25 dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
                 {activeType.label}
               </span>
               <div className="min-w-0">
