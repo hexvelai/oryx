@@ -131,6 +131,14 @@ function formatDateTime(ts: number) {
   }).format(ts);
 }
 
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (target.isContentEditable) return true;
+  return Boolean(target.closest("[contenteditable='true']"));
+}
+
 export default function DeepDive() {
   const navigate = useNavigate();
   const { diveId } = useParams();
@@ -214,6 +222,28 @@ export default function DeepDive() {
   useEffect(() => {
     humanEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [humanMessages?.length]);
+
+  useEffect(() => {
+    if (!deepDive) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const primary = e.metaKey || e.ctrlKey;
+      if (!primary || e.altKey || e.shiftKey) return;
+      if (isTypingTarget(e.target)) return;
+
+      if (e.key === "b" || e.key === "B") {
+        e.preventDefault();
+        setNotesOpen((open) => !open);
+        return;
+      }
+      if (e.key === "." || e.code === "Period") {
+        e.preventDefault();
+        setThreadsOpen((open) => !open);
+        return;
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [deepDive, setNotesOpen, setThreadsOpen]);
 
   const inviteLink = useMemo(() => {
     if (!inviteToken) return "";
@@ -542,7 +572,7 @@ export default function DeepDive() {
   const threadCount = deepDive.threads.length;
 
   return (
-    <div className="app-canvas flex min-h-[100dvh] flex-col bg-background">
+    <div className="app-canvas flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-background">
       <AppHeader
         workspace={{
           leading: (
@@ -582,6 +612,7 @@ export default function DeepDive() {
                 aria-pressed={threadsOpen}
                 aria-expanded={threadsOpen}
                 aria-label={threadsOpen ? "Hide threads" : "Show threads"}
+                title="Toggle threads (⌘. or Ctrl+.)"
                 onClick={() => setThreadsOpen((o) => !o)}
               >
                 <PanelLeft className="h-4 w-4" />
@@ -594,6 +625,7 @@ export default function DeepDive() {
                 aria-pressed={notesOpen}
                 aria-expanded={notesOpen}
                 aria-label={notesOpen ? "Hide team notes" : "Show team notes"}
+                title="Toggle team notes (⌘B or Ctrl+B)"
                 onClick={() => setNotesOpen((o) => !o)}
               >
                 {notesOpen ? <PanelRightClose className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
@@ -603,15 +635,15 @@ export default function DeepDive() {
         }}
       />
 
-      <main className="flex min-h-0 flex-1 overflow-hidden">
+      <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <aside
           className={cn(
-            "flex h-full min-h-0 shrink-0 overflow-hidden border-border/60 bg-muted/40 transition-[width,border-color] duration-200 ease-out dark:bg-muted/25",
+            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/60 bg-muted/40 transition-[width,border-color] duration-200 ease-out dark:bg-muted/25",
             threadsOpen ? "border-r" : "border-transparent",
           )}
           style={{ width: threadsOpen ? "min(288px, 92vw)" : 0 }}
         >
-          <div className="flex h-full w-[288px] flex-col px-3 pb-4 pt-3">
+          <div className="flex min-h-0 w-[288px] min-w-[288px] flex-1 flex-col px-3 pb-3 pt-3">
             <div className="flex items-center justify-between gap-2 px-1">
               <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Threads</div>
               <span className="text-xs tabular-nums text-muted-foreground">{threadCount}</span>
@@ -641,7 +673,7 @@ export default function DeepDive() {
               <span className="text-[11px] capitalize text-muted-foreground">{myRole}</span>
             </div>
 
-            <div className="mt-4 flex-1 overflow-y-auto scrollbar-thin pr-1">
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto scrollbar-thin pr-1">
             {Object.entries(threadsByGroup).map(([label, threads]) => (
               <div key={label} className="mb-5">
                 <div className="px-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
@@ -712,7 +744,7 @@ export default function DeepDive() {
           </div>
         </aside>
 
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch overflow-hidden bg-background">
           <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-1 flex-col">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2 sm:px-5">
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
@@ -1053,12 +1085,12 @@ export default function DeepDive() {
 
         <aside
           className={cn(
-            "flex h-full min-h-0 shrink-0 overflow-hidden border-border/60 bg-muted/40 transition-[width,border-color] duration-200 ease-out dark:bg-muted/25",
+            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/60 bg-muted/40 transition-[width,border-color] duration-200 ease-out dark:bg-muted/25",
             notesOpen ? "border-l" : "border-transparent",
           )}
           style={{ width: notesOpen ? "min(300px, 92vw)" : 0 }}
         >
-          <div className="flex h-full w-[300px] flex-col px-3 pb-4 pt-3">
+          <div className="flex min-h-0 w-[300px] min-w-[300px] flex-1 flex-col px-3 pb-3 pt-3">
             <div className="flex items-start justify-between gap-2 px-1">
               <div>
                 <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Team notes</div>
@@ -1066,7 +1098,7 @@ export default function DeepDive() {
               </div>
             </div>
 
-            <div className="mt-3 flex-1 overflow-y-auto scrollbar-thin pr-1">
+            <div className="mt-3 min-h-0 flex-1 overflow-y-auto scrollbar-thin pr-1">
             <div className="space-y-3 px-0.5">
               {(humanMessages ?? []).map((message) => (
                 <div key={message.id} className="rounded-2xl border border-border/70 bg-white/70 px-3 py-3 text-sm dark:bg-white/[0.05]">
@@ -1105,7 +1137,7 @@ export default function DeepDive() {
             </div>
           </div>
 
-          <div className="mt-3 border-t border-border/60 pt-3">
+          <div className="mt-auto shrink-0 border-t border-border/60 pt-3">
             <ChatInput
               onSend={sendHumanMessage}
               placeholder={canComment ? "Add a note for the team..." : "View-only"}
