@@ -36,7 +36,11 @@ function lastMessagePreview(messages: DeepDiveUIMessage[]) {
 export default function DeepDives() {
   const navigate = useNavigate();
   const deepDives = useConvexQuery(convexApi.deepDives.list, {}) ?? [];
+  const myInvites = useConvexQuery(convexApi.deepDives.listMyInvites, {}) ?? [];
   const createDeepDive = useConvexMutation(convexApi.deepDives.createDeepDive);
+  const createInvite = useConvexMutation(convexApi.deepDives.createInvite);
+  const acceptInvite = useConvexMutation(convexApi.deepDives.acceptInvite);
+  const declineInvite = useConvexMutation(convexApi.deepDives.declineInvite);
   const availableProviders = DEEP_DIVE_PROVIDERS;
 
   const [open, setOpen] = useState(false);
@@ -44,18 +48,21 @@ export default function DeepDives() {
   const [selectedProviders, setSelectedProviders] = useState<AIProvider[]>(availableProviders.length ? availableProviders : ["gpt"]);
   const [inviteText, setInviteText] = useState("");
   const [pendingDeepDiveId, setPendingDeepDiveId] = useState<string | null>(null);
+  const [pendingInviteToken, setPendingInviteToken] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [sendingInvites, setSendingInvites] = useState(false);
 
   const shareLink = useMemo(() => {
-    if (!pendingDeepDiveId) return "";
-    return `${window.location.origin}/dive/${pendingDeepDiveId}`;
-  }, [pendingDeepDiveId]);
+    if (!pendingInviteToken) return "";
+    return `${window.location.origin}/invite/${pendingInviteToken}`;
+  }, [pendingInviteToken]);
 
   const onNew = () => {
     setOpen(true);
     setStep(1);
     setInviteText("");
     setPendingDeepDiveId(null);
+    setPendingInviteToken(null);
     setSelectedProviders(availableProviders.length ? availableProviders : ["gpt"]);
   };
 
@@ -65,6 +72,7 @@ export default function DeepDives() {
       setStep(1);
       setInviteText("");
       setPendingDeepDiveId(null);
+      setPendingInviteToken(null);
       setSelectedProviders(availableProviders.length ? availableProviders : ["gpt"]);
     }
   };
@@ -79,6 +87,8 @@ export default function DeepDives() {
       const deepDiveId = await createDeepDive({ providers: selectedProviders, title: "New Deep Dive" });
       if (!deepDiveId) return;
       setPendingDeepDiveId(String(deepDiveId));
+      const invite = await createInvite({ deepDiveId: String(deepDiveId), role: "editor" });
+      setPendingInviteToken(invite.token);
       setStep(2);
     } finally {
       setCreating(false);
@@ -96,25 +106,135 @@ export default function DeepDives() {
     await navigator.clipboard.writeText(shareLink);
   };
 
+  const sendEmailInvites = async () => {
+    if (!pendingDeepDiveId) return;
+    const emails = inviteText
+      .split(/[,\s]+/g)
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .filter((value) => value.includes("@"));
+    if (emails.length === 0) return;
+
+    setSendingInvites(true);
+    try {
+      await Promise.all(
+        emails.map((email) =>
+          createInvite({
+            deepDiveId: pendingDeepDiveId,
+            email,
+            role: "editor",
+          }),
+        ),
+      );
+      setInviteText("");
+    } finally {
+      setSendingInvites(false);
+    }
+  };
+
+  const accept = async (token: string) => {
+    const result = await acceptInvite({ token });
+    navigate(`/dive/${result.deepDiveId}`);
+  };
+
+  const decline = async (token: string) => {
+    await declineInvite({ token });
+  };
+
   return (
     <div className="app-canvas min-h-screen bg-background">
       <AppHeader />
 
       <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 pb-12 pt-8 sm:px-6">
-        <section className="space-y-4">
+        {myInvites.length ? (
+          <section className="space-y-4">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Invitations</div>
+              <h2 className="mt-2 text-2xl text-foreground">Join a workspace</h2>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+              {myInvites.map((invite) => (
+                <div
+                  key={invite.token}
+                  className="surface-panel rounded-[24px] p-4"
+                >
+                  <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Deep Dive</div>
+                  <div className="mt-2 truncate text-[22px] leading-none text-foreground">{invite.title}</div>
+                  <div className="mt-3 text-sm text-muted-foreground">Role: <span className="text-foreground">{invite.role}</span></div>
+                  <div className="mt-4 flex gap-2">
+                    <Button className="h-10 flex-1 rounded-full" onClick={() => void accept(invite.token)}>
+                      Accept invite
+                    </Button>
+                    <Button variant="outline" className="h-10 flex-1 rounded-full" onClick={() => void decline(invite.token)}>
+                      Deny
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="relative space-y-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Open work</div>
               <h1 className="mt-2 text-3xl text-foreground sm:text-4xl">Recent projects</h1>
             </div>
-            <Button
-              onClick={onNew}
-              className="h-11 rounded-full bg-primary px-5 text-sm text-primary-foreground shadow-sm"
-            >
-              Create Deep Dive
-              <ArrowRight className="h-4 w-4" />
-            </Button>
+            {deepDives.length > 0 ? (
+              <Button
+                onClick={onNew}
+                className="h-11 rounded-full bg-primary px-5 text-sm text-primary-foreground shadow-sm"
+              >
+                Create Deep Dive
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            ) : null}
           </div>
+
+          {deepDives.length === 0 ? (
+            <div className="relative min-h-[340px] rounded-[28px] border border-dashed border-border/70 bg-white/40 p-8 dark:bg-white/[0.03]">
+              <div className="absolute right-6 top-6 z-10 hidden sm:block">
+                <Button
+                  onClick={onNew}
+                  className="h-11 rounded-full bg-primary px-5 text-sm text-primary-foreground shadow-sm"
+                >
+                  Create Deep Dive
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="pointer-events-none absolute inset-0 grid place-items-center px-8">
+                <div className="max-w-md text-center">
+                  <div className="text-2xl text-foreground">Click here to start your first project</div>
+                  <div className="mt-2 text-sm leading-7 text-muted-foreground">Create a Deep Dive to start chatting and collaborating.</div>
+                </div>
+              </div>
+              <div className="pointer-events-none absolute right-20 top-14 hidden text-foreground/60 sm:block">
+                <svg width="260" height="140" viewBox="0 0 260 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <marker id="empty-state-arrowhead" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto" markerUnits="strokeWidth">
+                      <path
+                        d="M1 1 L10 6 L1 11"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </marker>
+                  </defs>
+                  <path
+                    d="M16 128 C 86 152, 150 132, 196 98 C 224 76, 236 56, 244 38"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeDasharray="2 8"
+                    markerEnd="url(#empty-state-arrowhead)"
+                  />
+                </svg>
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
             {deepDives.map(dive => {
@@ -218,8 +338,8 @@ export default function DeepDives() {
           {step === 2 && (
             <div className="space-y-4">
               <div className="text-sm leading-6 text-muted-foreground">
-                This is still a local UI-first version, so the invite field is a placeholder for now. The share link is
-                useful for future collaboration wiring.
+                Invite collaborators by email or share the link below. Anyone with the link can join with the configured
+                access level.
               </div>
               <Input
                 value={inviteText}
@@ -227,6 +347,14 @@ export default function DeepDives() {
                 placeholder="Emails (comma-separated)"
                 className="rounded-2xl bg-white/80 dark:bg-white/[0.05]"
               />
+              <Button
+                variant="outline"
+                onClick={sendEmailInvites}
+                disabled={!pendingDeepDiveId || sendingInvites || inviteText.trim().length === 0}
+                className="w-full rounded-full"
+              >
+                Create invites
+              </Button>
               <div className="rounded-2xl border border-border/80 bg-white/75 px-4 py-3 dark:bg-white/[0.05]">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Share link</div>
                 <div className="mt-2 break-all text-sm text-foreground">{shareLink}</div>

@@ -1,5 +1,9 @@
 import { useRef, useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import type { ChatMessage, AIProvider } from "@/types/ai";
 import { AI_MODELS } from "@/types/ai";
 import { useChatContext } from "@/context/ChatContext";
@@ -279,14 +283,31 @@ function MessageBubble({
             </span>
           </div>
         )}
-        <div className="whitespace-pre-wrap break-words text-pretty">
-          {message.content.split("**").map((part, i) =>
-            i % 2 === 1 ? (
-              <strong key={i} className="font-semibold">{part}</strong>
-            ) : (
-              <span key={i}>{part}</span>
-            )
-          )}
+        <div className="break-words text-pretty">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[rehypeKatex]}
+            components={{
+              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+              a: ({ children, href }) => (
+                <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                  {children}
+                </a>
+              ),
+              ul: ({ children }) => <ul className="mb-2 list-disc pl-6 last:mb-0">{children}</ul>,
+              ol: ({ children }) => <ol className="mb-2 list-decimal pl-6 last:mb-0">{children}</ol>,
+              li: ({ children }) => <li className="mb-1 last:mb-0">{children}</li>,
+              blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-border/70 pl-3 italic">{children}</blockquote>,
+              code: ({ children, className }) => (
+                <code className={`rounded bg-black/5 px-1 py-0.5 font-mono text-[0.9em] dark:bg-white/[0.06] ${className ?? ""}`}>
+                  {children}
+                </code>
+              ),
+              pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[18px] bg-black/5 p-3 dark:bg-white/[0.06]">{children}</pre>,
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
         </div>
         {!isUser && typeof message.reasoningTokens === "number" && (
           <div className="mt-1 text-[12px]" style={{ color: "#7a8aaa" }}>

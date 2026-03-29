@@ -1,9 +1,13 @@
+const defaultIssuer = "https://prime-halibut-45.clerk.accounts.dev";
+const issuer =
+  process.env.CLERK_JWT_ISSUER_DOMAIN ??
+  process.env.CLERK_FRONTEND_API_URL ??
+  defaultIssuer;
+
 export default {
   providers: [
     {
-      // You can find your Clerk Issuer URL in the Clerk Dashboard
-      // under "API Keys" -> "Advanced" -> "Convex"
-      domain: process.env.CLERK_JWT_ISSUER_DOMAIN || "https://clerk.your-domain.com",
+      domain: issuer,
       applicationID: "convex",
     },
   ],

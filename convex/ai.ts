@@ -1,6 +1,6 @@
 "use node";
 
-import { action } from "./_generated/server";
+import { action, ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { AIProvider } from "../src/types/ai";
@@ -8,7 +8,7 @@ import type { DeepDiveUIMessage } from "../src/lib/deep-dive-types";
 
 const MODEL_BY_PROVIDER: Record<AIProvider, string> = {
   gpt: "openai/gpt-oss-20b:free",
-  gemini: "meta-llama/llama-3.3-70b-instruct:free",
+  gemini: "gemini-1.5-flash",
   claude: "nvidia/nemotron-3-super-120b-a12b:free",
 };
 
@@ -16,7 +16,7 @@ const labelToProvider: Record<string, AIProvider> = {
   gpt: "gpt",
   gemini: "gemini",
   claude: "claude",
-  llama: "gemini",
+  flash: "gemini",
   nemotron: "claude",
 };
 
@@ -32,7 +32,7 @@ function stripProviderMention(input: string) {
 
 function providerDisplayName(provider: AIProvider) {
   if (provider === "gpt") return "GPT";
-  if (provider === "gemini") return "Llama";
+  if (provider === "gemini") return "Gemini";
   return "Nemotron";
 }
 
@@ -51,12 +51,53 @@ function getLatestUserText(messages: DeepDiveUIMessage[]) {
   return firstTextPart(latestUser);
 }
 
+function extractPartText(part: unknown, allowedTypes: Array<"text" | "reasoning">): string | null {
+  if (!part || typeof part !== "object") return null;
+  const record = part as Record<string, unknown>;
+  const type = record.type;
+  const text = record.text;
+  if (typeof type !== "string" || typeof text !== "string") return null;
+  if (!allowedTypes.includes(type as "text" | "reasoning")) return null;
+  return text;
+}
+
+function joinAllowedPartText(message: DeepDiveUIMessage, allowedTypes: Array<"text" | "reasoning">) {
+  return (message.parts as unknown[])
+    .map((part) => extractPartText(part, allowedTypes))
+    .filter((text): text is string => typeof text === "string" && text.trim().length > 0)
+    .join("\n")
+    .trim();
+}
+
+function userPromptMessage(id: string, text: string): DeepDiveUIMessage {
+  return {
+    id,
+    role: "user",
+    parts: [{ type: "text", text }],
+  } as DeepDiveUIMessage;
+}
+
+function formattingSystemMessage(): DeepDiveUIMessage {
+  return {
+    id: "formatting-system",
+    role: "system",
+    parts: [
+      {
+        type: "text",
+        text:
+          "Format responses in GitHub-flavored Markdown. For math, use LaTeX wrapped in $...$ (inline) or $$...$$ (block) so it renders correctly.",
+      },
+    ],
+  } as DeepDiveUIMessage;
+}
+
 function pickBestProvider(args: { prompt: string; history: DeepDiveUIMessage[]; allowed: AIProvider[] }) {
   const allowed = args.allowed.length ? args.allowed : (["gpt"] as AIProvider[]);
   const prompt = args.prompt.toLowerCase();
   const historyText = args.history
     .slice(-16)
-    .flatMap((message) => message.parts.filter((part: any) => part.type === "text").map((part: any) => part.text))
+    .map((message) => joinAllowedPartText(message, ["text"]))
+    .filter(Boolean)
     .join("\n")
     .toLowerCase();
 
@@ -110,7 +151,7 @@ function pickBestProvider(args: { prompt: string; history: DeepDiveUIMessage[]; 
   return choose("gpt", "general reasoning");
 }
 
-async function resolveOpenRouterKey(ctx: any) {
+async function resolveOpenRouterKey(ctx: ActionCtx) {
   const stored = await ctx.runQuery(internal.settings.getOpenRouterKey, {});
   const envKey = process.env.OPENROUTER_API_KEY?.trim() || "";
   const apiKey = stored || envKey;
@@ -120,30 +161,123 @@ async function resolveOpenRouterKey(ctx: any) {
   return apiKey;
 }
 
+async function resolveGeminiKey(ctx: ActionCtx) {
+  const stored = await ctx.runQuery(internal.settings.getGeminiKey, {});
+  const envKey = process.env.GEMINI_API_KEY?.trim() || "";
+  const apiKey = stored || envKey;
+  if (!apiKey) {
+    throw new Error("Missing Gemini API key. Add it in AI Settings.");
+  }
+  return apiKey;
+}
+
 function toOpenRouterMessages(messages: DeepDiveUIMessage[]) {
+  const byId = new Map<string, string>();
+  for (const message of messages) {
+    const text = joinAllowedPartText(message, ["text"]);
+    if (message.id && text) byId.set(message.id, text);
+  }
+
   return messages.flatMap((message) => {
     if (message.role === "system") {
-      const text = message.parts.filter((part: any) => part.type === "text").map((part: any) => part.text).join("\n").trim();
+      const text = joinAllowedPartText(message, ["text"]);
       return text ? [{ role: "system", content: text }] : [];
     }
 
     if (message.role === "user") {
-      const text = message.parts.filter((part: any) => part.type === "text").map((part: any) => part.text).join("\n").trim();
-      return text ? [{ role: "user", content: text }] : [];
+      const text = joinAllowedPartText(message, ["text"]);
+      const metadata = message.metadata as unknown as {
+        author?: { name?: string; email?: string };
+        replyTo?: { messageId?: string; excerpt?: string };
+      } | null;
+
+      const authorName = metadata?.author?.name || metadata?.author?.email || "Human";
+      const replyId = metadata?.replyTo?.messageId;
+      const replyExcerpt = metadata?.replyTo?.excerpt || (replyId ? byId.get(replyId) : undefined);
+
+      const composed = replyId
+        ? `From ${authorName} (replying to):\n${replyExcerpt ? `---\n${replyExcerpt}\n---\n\n` : ""}${text}`
+        : `From ${authorName}:\n${text}`;
+
+      return text ? [{ role: "user", content: composed }] : [];
     }
 
-    const text = message.parts
-      .filter((part: any) => part.type === "text" || part.type === "reasoning")
-      .map((part: any) => part.text)
-      .join("\n")
-      .trim();
+    const text = joinAllowedPartText(message, ["text", "reasoning"]);
     return text ? [{ role: "assistant", content: text }] : [];
   });
 }
 
-async function runChatCompletion(args: {
+function toGeminiRequest(messages: DeepDiveUIMessage[]) {
+  const openRouterMessages = toOpenRouterMessages(messages);
+  const systemText = openRouterMessages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content)
+    .join("\n\n")
+    .trim();
+  const contents = openRouterMessages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({
+      role: message.role === "user" ? ("user" as const) : ("model" as const),
+      parts: [{ text: message.content }],
+    }));
+
+  return {
+    systemInstruction: systemText ? { parts: [{ text: systemText }] } : undefined,
+    contents,
+  };
+}
+
+async function runGeminiChatCompletion(args: {
   apiKey: string;
-  provider: AIProvider;
+  messages: DeepDiveUIMessage[];
+  temperature?: number;
+}) {
+  const request = toGeminiRequest(args.messages);
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_BY_PROVIDER.gemini}:generateContent?key=${encodeURIComponent(args.apiKey)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...request,
+        generationConfig: {
+          temperature: args.temperature ?? 0.7,
+        },
+      }),
+    },
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        error?: { message?: string };
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> };
+        }>;
+      }
+    | null;
+  if (!response.ok) {
+    const message = payload?.error?.message || "Gemini request failed";
+    throw new Error(message);
+  }
+
+  const parts = payload?.candidates?.[0]?.content?.parts ?? [];
+  const text = parts
+    .map((part) => (typeof part.text === "string" ? part.text : ""))
+    .join("")
+    .trim();
+
+  if (!text) {
+    throw new Error("Gemini returned an empty response");
+  }
+
+  return text;
+}
+
+async function runOpenRouterChatCompletion(args: {
+  apiKey: string;
+  provider: Exclude<AIProvider, "gemini">;
   messages: DeepDiveUIMessage[];
   temperature?: number;
 }) {
@@ -152,8 +286,8 @@ async function runChatCompletion(args: {
     headers: {
       Authorization: `Bearer ${args.apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://mozaic.local",
-      "X-Title": "mozaic",
+      "HTTP-Referer": "https://teselix.local",
+      "X-Title": "teselix",
     },
     body: JSON.stringify({
       model: MODEL_BY_PROVIDER[args.provider],
@@ -162,7 +296,13 @@ async function runChatCompletion(args: {
     }),
   });
 
-  const payload = await response.json().catch(() => null) as any;
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        error?: { message?: string };
+        message?: string;
+        choices?: Array<{ message?: { content?: string } }>;
+      }
+    | null;
   if (!response.ok) {
     const message = payload?.error?.message || payload?.message || "OpenRouter request failed";
     throw new Error(message);
@@ -176,6 +316,45 @@ async function runChatCompletion(args: {
   return text.trim();
 }
 
+async function resolveApiKeys(ctx: ActionCtx, providers: AIProvider[]) {
+  const needsGemini = providers.includes("gemini");
+  const needsOpenRouter = providers.some((provider) => provider !== "gemini");
+
+  const [geminiApiKey, openRouterApiKey] = await Promise.all([
+    needsGemini ? resolveGeminiKey(ctx) : Promise.resolve(undefined),
+    needsOpenRouter ? resolveOpenRouterKey(ctx) : Promise.resolve(undefined),
+  ]);
+
+  return { geminiApiKey, openRouterApiKey };
+}
+
+async function runChatCompletion(args: {
+  provider: AIProvider;
+  messages: DeepDiveUIMessage[];
+  temperature?: number;
+  geminiApiKey?: string;
+  openRouterApiKey?: string;
+}) {
+  if (args.provider === "gemini") {
+    const apiKey = args.geminiApiKey?.trim() || "";
+    if (!apiKey) throw new Error("Missing Gemini API key. Add it in AI Settings.");
+    return runGeminiChatCompletion({
+      apiKey,
+      messages: args.messages,
+      temperature: args.temperature,
+    });
+  }
+
+  const apiKey = args.openRouterApiKey?.trim() || "";
+  if (!apiKey) throw new Error("Missing OpenRouter API key. Add it in AI Settings.");
+  return runOpenRouterChatCompletion({
+    apiKey,
+    provider: args.provider,
+    messages: args.messages,
+    temperature: args.temperature,
+  });
+}
+
 export const sendThreadMessage = action({
   args: {
     threadId: v.id("threads"),
@@ -184,17 +363,16 @@ export const sendThreadMessage = action({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
 
-    const apiKey = await resolveOpenRouterKey(ctx);
     const context = await ctx.runQuery(internal.deepDives.getThreadContext, { threadId: args.threadId });
     if (!context?.thread || !context.deepDive) {
       throw new Error("Thread not found");
     }
 
-    // Check ownership
-    const user = await ctx.runQuery(internal.deepDives.getUserByTokenIdentifier, {
+    const role = await ctx.runQuery(internal.deepDives.getRoleForTokenIdentifierInDeepDive, {
+      deepDiveId: context.deepDive._id,
       tokenIdentifier: identity.tokenIdentifier,
     });
-    if (!user || context.deepDive.userId !== user._id) {
+    if (!role || (role !== "owner" && role !== "editor" && role !== "commenter")) {
       throw new Error("Unauthorized");
     }
 
@@ -217,21 +395,24 @@ export const sendThreadMessage = action({
         ? undefined
         : `Answered by ${providerDisplayName(chosenProvider)} for ${picked.reason}.`;
 
-    const normalizedMessages = (context.thread.messages ?? []).map((message: any) =>
-      message.role === "user"
-        ? {
-            ...message,
-            parts: message.parts.map((part: any) =>
-              part.type === "text" && part.text === latestText ? { ...part, text: cleaned } : part,
-            ),
-          }
-        : message,
-    ) as DeepDiveUIMessage[];
+    const { geminiApiKey, openRouterApiKey } = await resolveApiKeys(ctx, [chosenProvider]);
+    const rawMessages = (context.thread.messages ?? []) as DeepDiveUIMessage[];
+    const normalizedMessages: DeepDiveUIMessage[] = rawMessages.map((message) => {
+      if (message.role !== "user") return message;
+      const nextParts = message.parts.map((part) => {
+        if (part.type === "text" && part.text === latestText) {
+          return { ...part, text: cleaned };
+        }
+        return part;
+      });
+      return { ...message, parts: nextParts };
+    });
 
     const text = await runChatCompletion({
-      apiKey,
       provider: chosenProvider,
-      messages: normalizedMessages,
+      messages: [formattingSystemMessage(), ...normalizedMessages],
+      geminiApiKey,
+      openRouterApiKey,
     });
 
     await ctx.runMutation(internal.deepDives.appendAssistantMessage, {
@@ -261,29 +442,30 @@ export const runVote = action({
       throw new Error("Thread not found");
     }
 
-    const user = await ctx.runQuery(internal.deepDives.getUserByTokenIdentifier, {
+    const role = await ctx.runQuery(internal.deepDives.getRoleForTokenIdentifierInDeepDive, {
+      deepDiveId: context.deepDive._id,
       tokenIdentifier: identity.tokenIdentifier,
     });
-    if (!user || context.deepDive.userId !== user._id) {
+    if (!role || (role !== "owner" && role !== "editor")) {
       throw new Error("Unauthorized");
     }
 
-    const apiKey = await resolveOpenRouterKey(ctx);
     const participants = (args.participants?.length ? args.participants : ["gpt", "gemini", "claude"]) as AIProvider[];
+    const { geminiApiKey, openRouterApiKey } = await resolveApiKeys(ctx, participants);
 
     const proposals = await Promise.all(
       participants.map(async (provider) => {
         const response = await runChatCompletion({
-          apiKey,
           provider,
           messages: [
-            {
-              id: "vote-system",
-              role: "user",
-              parts: [{ type: "text", text: `Return a concise answer to this prompt, followed by a short sentence of reasoning.\n\nPrompt: ${args.prompt}` }],
-            } as any,
+            userPromptMessage(
+              "vote-system",
+              `Return a concise answer to this prompt, followed by a short sentence of reasoning.\n\nPrompt: ${args.prompt}`,
+            ),
           ],
           temperature: 0.6,
+          geminiApiKey,
+          openRouterApiKey,
         });
 
         return {
@@ -300,16 +482,16 @@ export const runVote = action({
     await Promise.all(
       participants.map(async (voter) => {
         const ballot = await runChatCompletion({
-          apiKey,
           provider: voter,
           messages: [
-            {
-              id: "vote-ballot",
-              role: "user",
-              parts: [{ type: "text", text: `Prompt: ${args.prompt}\n\nChoose the best proposal by returning only one of: gpt, gemini, claude.\n\n${proposalsText}` }],
-            } as any,
+            userPromptMessage(
+              "vote-ballot",
+              `Prompt: ${args.prompt}\n\nChoose the best proposal by returning only one of: gpt, gemini, claude.\n\n${proposalsText}`,
+            ),
           ],
           temperature: 0.2,
+          geminiApiKey,
+          openRouterApiKey,
         });
 
         const normalized = ballot.toLowerCase();
@@ -349,15 +531,16 @@ export const runDebate = action({
       throw new Error("Thread not found");
     }
 
-    const user = await ctx.runQuery(internal.deepDives.getUserByTokenIdentifier, {
+    const role = await ctx.runQuery(internal.deepDives.getRoleForTokenIdentifierInDeepDive, {
+      deepDiveId: context.deepDive._id,
       tokenIdentifier: identity.tokenIdentifier,
     });
-    if (!user || context.deepDive.userId !== user._id) {
+    if (!role || (role !== "owner" && role !== "editor")) {
       throw new Error("Unauthorized");
     }
 
-    const apiKey = await resolveOpenRouterKey(ctx);
     const participants = (args.participants?.length ? args.participants : ["gpt", "gemini", "claude"]) as AIProvider[];
+    const { geminiApiKey, openRouterApiKey } = await resolveApiKeys(ctx, participants);
     const transcript: Array<{ from: AIProvider; content: string }> = [];
 
     const teamworkMessages = [] as Array<{
@@ -370,19 +553,16 @@ export const runDebate = action({
 
     for (const provider of participants) {
       const content = await runChatCompletion({
-        apiKey,
         provider,
         messages: [
-          {
-            id: `debate-${provider}`,
-            role: "user",
-            parts: [{
-              type: "text",
-              text: `Prompt:\n${args.prompt}\n\nCurrent transcript:\n${transcript.map((item) => `${item.from}: ${item.content}`).join("\n")}\n\nRespond as ${providerDisplayName(provider)}. Be concise and constructive.`,
-            }],
-          } as any,
+          userPromptMessage(
+            `debate-${provider}`,
+            `Prompt:\n${args.prompt}\n\nCurrent transcript:\n${transcript.map((item) => `${item.from}: ${item.content}`).join("\n")}\n\nRespond as ${providerDisplayName(provider)}. Be concise and constructive.`,
+          ),
         ],
         temperature: 0.65,
+        geminiApiKey,
+        openRouterApiKey,
       });
 
       teamworkMessages.push({

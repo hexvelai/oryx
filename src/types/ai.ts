@@ -90,10 +90,10 @@ export const AI_MODELS: Record<AIProvider, AIModel> = {
   },
   gemini: {
     id: "gemini",
-    name: "Llama",
-    fullName: "meta-llama/llama-3.3-70b-instruct:free",
+    name: "Gemini",
+    fullName: "gemini-1.5-flash",
     color: "ai-gemini",
-    description: "OpenRouter — Llama 3.3 70B Instruct (free)",
+    description: "Google AI — Gemini 1.5 Flash",
   },
   claude: {
     id: "claude",

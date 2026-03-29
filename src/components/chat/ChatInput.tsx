@@ -7,21 +7,35 @@ interface ChatInputProps {
   onSend: (message: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  autoFocus?: boolean;
+  value?: string;
+  onChange?: (value: string) => void;
+  reply?: {
+    label: string;
+    onClick?: () => void;
+    onCancel?: () => void;
+  } | null;
 }
 
-export function ChatInput({ onSend, placeholder = "Type a message...", disabled }: ChatInputProps) {
-  const [value, setValue] = useState("");
+export function ChatInput({ onSend, placeholder = "Type a message...", disabled, autoFocus = true, value, onChange, reply }: ChatInputProps) {
+  const [uncontrolledValue, setUncontrolledValue] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const actualValue = value ?? uncontrolledValue;
 
   useEffect(() => {
+    if (!autoFocus) return;
     inputRef.current?.focus();
-  }, []);
+  }, [autoFocus]);
 
   const handleSubmit = () => {
-    const trimmed = value.trim();
+    const trimmed = actualValue.trim();
     if (!trimmed || disabled) return;
     onSend(trimmed);
-    setValue("");
+    if (onChange) {
+      onChange("");
+    } else {
+      setUncontrolledValue("");
+    }
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
     }
@@ -42,26 +56,52 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled 
   };
 
   return (
-    <div className="flex items-end gap-3 rounded-[24px] border border-border/80 bg-white/80 p-3 shadow-[0_1px_0_rgba(255,255,255,0.7)_inset] dark:bg-white/[0.04] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
-      <Textarea
-        ref={inputRef}
-        value={value}
-        onChange={e => { setValue(e.target.value); handleInput(); }}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        disabled={disabled}
-        rows={1}
-        className="min-h-0 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm leading-7 shadow-none focus-visible:ring-0"
-        style={{ maxHeight: 120, height: "auto" }}
-      />
-      <Button
-        size="icon"
-        onClick={handleSubmit}
-        disabled={!value.trim() || disabled}
-        className="h-11 w-11 shrink-0 rounded-full dark:bg-primary dark:text-primary-foreground"
-      >
-        <Send className="w-4 h-4" />
-      </Button>
+    <div className="flex flex-col gap-2 rounded-[24px] border border-border/80 bg-white/80 p-3 shadow-[0_1px_0_rgba(255,255,255,0.7)_inset] dark:bg-white/[0.04] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
+      {reply ? (
+        <div className="flex items-start justify-between gap-2 rounded-[18px] border border-border/70 bg-white/60 px-3 py-2 text-xs dark:bg-white/[0.03]">
+          <button
+            type="button"
+            onClick={reply.onClick}
+            className="min-w-0 flex-1 text-left"
+          >
+            <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Replying to</div>
+            <div className="mt-1 truncate text-foreground">{reply.label}</div>
+          </button>
+          <Button type="button" variant="ghost" size="sm" onClick={reply.onCancel} className="h-7 px-2">
+            ×
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="flex items-end gap-3">
+        <Textarea
+          ref={inputRef}
+          value={actualValue}
+          onChange={e => {
+            const next = e.target.value;
+            if (onChange) {
+              onChange(next);
+            } else {
+              setUncontrolledValue(next);
+            }
+            handleInput();
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+          rows={1}
+          className="min-h-0 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm leading-7 shadow-none focus-visible:ring-0"
+          style={{ maxHeight: 120, height: "auto" }}
+        />
+        <Button
+          size="icon"
+          onClick={handleSubmit}
+          disabled={!actualValue.trim() || disabled}
+          className="h-11 w-11 shrink-0 rounded-full dark:bg-primary dark:text-primary-foreground"
+        >
+          <Send className="w-4 h-4" />
+        </Button>
+      </div>
     </div>
   );
 }

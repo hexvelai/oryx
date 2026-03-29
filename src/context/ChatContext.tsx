@@ -60,29 +60,79 @@ export function useChatContext() {
 }
 
 const ALL_PROVIDERS: AIProvider[] = ["gpt", "gemini", "claude"];
-const PROVIDER_CONFIG_KEY = "mozaic.providerConfig";
+const PROVIDER_CONFIG_KEY = "teselix.providerConfig";
 
-function loadProviderConfig() {
-  const fallback = {
+type ProviderConfig = {
+  enabled: Partial<Record<AIProvider, boolean>>;
+  apiKeys: Partial<Record<AIProvider, string>>;
+};
+
+function loadProviderConfig(): ProviderConfig {
+  const fallback: ProviderConfig = {
     enabled: { gpt: true, gemini: true, claude: true },
     apiKeys: {},
   };
   try {
     const raw = localStorage.getItem(PROVIDER_CONFIG_KEY);
     if (!raw) return fallback;
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return fallback;
+    const record = parsed as Record<string, unknown>;
+    const enabled = (record.enabled && typeof record.enabled === "object" ? (record.enabled as ProviderConfig["enabled"]) : fallback.enabled) ?? fallback.enabled;
+    const apiKeys = (record.apiKeys && typeof record.apiKeys === "object" ? (record.apiKeys as ProviderConfig["apiKeys"]) : fallback.apiKeys) ?? fallback.apiKeys;
+    return { enabled, apiKeys };
   } catch {
     return fallback;
   }
 }
 
-function saveProviderConfig(cfg: any) {
+function saveProviderConfig(cfg: ProviderConfig) {
   localStorage.setItem(PROVIDER_CONFIG_KEY, JSON.stringify(cfg));
+}
+
+type ConvexDeepDiveRecord = {
+  id: string;
+  title: string;
+  providers: AIProvider[];
+  createdAt: number;
+  updatedAt: number;
+  threads: Array<{
+    id: string;
+    title: string;
+    createdAt: number;
+    updatedAt: number;
+    type: DeepDiveThread["type"];
+    messages: unknown[];
+    voteResults?: VoteResult[];
+    teamworkMessages?: TeamworkMessage[];
+  }>;
+  uploads: SharedUpload[];
+  myRole?: unknown;
+};
+
+type ConvexMessagePart = { type?: unknown; text?: unknown };
+type ConvexThreadMessage = {
+  id?: unknown;
+  role?: unknown;
+  parts?: unknown;
+  metadata?: { createdAt?: unknown; provider?: unknown } | undefined;
+};
+
+function toText(parts: unknown) {
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .map((part) => {
+      const p = part as ConvexMessagePart;
+      if (p?.type === "text" && typeof p.text === "string") return p.text;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   // Convex Hooks
-  const convexDeepDives = useConvexQuery(convexApi.deepDives.list, {}) ?? [];
+  const convexDeepDives = (useConvexQuery(convexApi.deepDives.list, {}) as unknown as ConvexDeepDiveRecord[] | undefined) ?? [];
   const convexCreateDeepDive = useConvexMutation(convexApi.deepDives.createDeepDive);
   const convexCreateThread = useConvexMutation(convexApi.deepDives.createThread);
   const convexAppendUserMessage = useConvexMutation(convexApi.deepDives.appendUserMessage);
@@ -127,10 +177,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const createThread = useCallback(async (deepDiveId: string, init?: { title?: string; type?: DeepDiveThread["type"]; seedMessages?: ChatMessage[] }) => {
     const id = await convexCreateThread({
-      deepDiveId: deepDiveId as any,
+      deepDiveId,
       title: init?.title,
-      type: init?.type as any,
-      seedMessages: init?.seedMessages as any,
+      type: init?.type,
+      seedMessages: init?.seedMessages,
     });
     const idStr = String(id);
     setActiveThreadIdByDeepDive(prev => ({ ...prev, [deepDiveId]: idStr }));
@@ -138,20 +188,20 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [convexCreateThread]);
 
   const sendDeepDiveMessage = useCallback(async (deepDiveId: string, threadId: string, content: string) => {
-    await convexAppendUserMessage({ threadId: threadId as any, text: content });
-    await convexSendThreadMessage({ threadId: threadId as any });
+    await convexAppendUserMessage({ threadId, text: content });
+    await convexSendThreadMessage({ threadId });
   }, [convexAppendUserMessage, convexSendThreadMessage]);
 
   const removeDeepDiveUpload = useCallback(async (deepDiveId: string, uploadId: string) => {
-    await convexRemoveUpload({ deepDiveId: deepDiveId as any, uploadId: uploadId as any });
+    await convexRemoveUpload({ deepDiveId, uploadId });
   }, [convexRemoveUpload]);
 
   const runVoteInThread = useCallback(async (deepDiveId: string, threadId: string, prompt: string) => {
-    await convexRunVote({ threadId: threadId as any, prompt });
+    await convexRunVote({ threadId, prompt });
   }, [convexRunVote]);
 
   const runDebateInThread = useCallback(async (deepDiveId: string, threadId: string, prompt: string, participants: AIProvider[]) => {
-    await convexRunDebate({ threadId: threadId as any, prompt, participants });
+    await convexRunDebate({ threadId, prompt, participants });
   }, [convexRunDebate]);
 
   const forkThreadFromMessages = useCallback(async (init: { deepDiveId?: string; title?: string; type: DeepDiveThread["type"]; seedMessages: ChatMessage[] }) => {
@@ -162,26 +212,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // Map Convex Data to UI Types
   const deepDives: DeepDive[] = useMemo(() => {
-    return (convexDeepDives as any[]).map(d => ({
+    return convexDeepDives.map(d => ({
       id: d.id,
       title: d.title,
       providers: d.providers,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
-      threads: (d.threads as any[]).map(t => ({
+      threads: d.threads.map(t => ({
         id: t.id,
         title: t.title,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
         type: t.type,
-        messages: (t.messages as any[]).map(m => ({
-          id: m.id,
-          role: m.role,
-          content: m.parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join("\n"),
-          timestamp: m.metadata?.createdAt ?? Date.now(),
-          provider: m.metadata?.provider,
+        messages: t.messages.map((message) => {
+          const m = message as ConvexThreadMessage;
+          const id = typeof m.id === "string" ? m.id : `msg-${Math.random().toString(16).slice(2)}`;
+          const role = (m.role === "assistant" || m.role === "user" ? m.role : "assistant") as ChatMessage["role"];
+          const content = toText(m.parts);
+          const timestamp = typeof m.metadata?.createdAt === "number" ? m.metadata.createdAt : Date.now();
+          const provider = (m.metadata?.provider === "gpt" || m.metadata?.provider === "gemini" || m.metadata?.provider === "claude")
+            ? (m.metadata.provider as AIProvider)
+            : undefined;
+          return {
+            id,
+            role,
+            content,
+            timestamp,
+            provider,
           isShared: true,
-        })),
+          } satisfies ChatMessage;
+        }),
         voteResults: t.voteResults,
         teamworkMessages: t.teamworkMessages,
       })),

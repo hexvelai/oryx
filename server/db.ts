@@ -8,7 +8,7 @@ let initPromise: Promise<Client> | null = null;
 function resolveDatabaseUrl() {
   const configured = process.env.DATABASE_URL?.trim();
   if (configured) return configured;
-  const filePath = path.resolve(process.cwd(), "data", "mozaic.db");
+  const filePath = path.resolve(process.cwd(), "data", "teselix.db");
   return `file:${filePath}`;
 }
 

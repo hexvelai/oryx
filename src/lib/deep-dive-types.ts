@@ -3,12 +3,24 @@ import type { AIProvider } from "../types/ai";
 
 export const DEEP_DIVE_PROVIDERS: AIProvider[] = ["gpt", "gemini", "claude"];
 
+export type DeepDiveRole = "owner" | "editor" | "commenter" | "viewer";
+
 export type DeepDiveMessageMetadata = {
   createdAt?: number;
   provider?: AIProvider;
   model?: string;
   routingNote?: string;
   totalTokens?: number;
+  author?: {
+    userId: string;
+    name?: string;
+    email?: string;
+    image?: string;
+  };
+  replyTo?: {
+    messageId: string;
+    excerpt?: string;
+  };
 };
 
 export type DeepDiveUIMessage = UIMessage<DeepDiveMessageMetadata>;
@@ -55,8 +67,34 @@ export interface DeepDiveRecord {
   providers: AIProvider[];
   createdAt: number;
   updatedAt: number;
+  myRole?: DeepDiveRole;
   threads: DeepDiveThreadRecord[];
   uploads: SharedUploadRecord[];
+}
+
+export interface DeepDiveMember {
+  userId: string;
+  name?: string;
+  email?: string;
+  image?: string;
+  role: DeepDiveRole;
+}
+
+export interface HumanChatMessage {
+  id: string;
+  deepDiveId: string;
+  author: {
+    userId: string;
+    name?: string;
+    email?: string;
+    image?: string;
+  };
+  text: string;
+  replyTo?: {
+    threadMessageId: string;
+    excerpt?: string;
+  };
+  createdAt: number;
 }
 
 export interface CreateDeepDiveInput {

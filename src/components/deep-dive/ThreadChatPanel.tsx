@@ -1,8 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { MoreHorizontal, Sparkles } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChatInput } from "@/components/chat/ChatInput";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AI_MODELS } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
 import type { DeepDiveThreadRecord, DeepDiveUIMessage } from "@/lib/deep-dive-types";
@@ -15,13 +20,41 @@ function getMessageText(message: DeepDiveUIMessage) {
     .trim();
 }
 
-function renderRichText(content: string) {
-  return content.split("**").map((part, i) =>
-    i % 2 === 1 ? (
-      <strong key={i} className="font-semibold">{part}</strong>
-    ) : (
-      <span key={i}>{part}</span>
-    ),
+function initials(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "?";
+  const parts = trimmed.split(/\s+/g).filter(Boolean);
+  const first = parts[0]?.[0] ?? "?";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
+  return `${first}${last}`.toUpperCase();
+}
+
+function renderMarkdown(content: string) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      components={{
+        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+        a: ({ children, href }) => (
+          <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+            {children}
+          </a>
+        ),
+        ul: ({ children }) => <ul className="mb-2 list-disc pl-6 last:mb-0">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-2 list-decimal pl-6 last:mb-0">{children}</ol>,
+        li: ({ children }) => <li className="mb-1 last:mb-0">{children}</li>,
+        blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-border/70 pl-3 italic">{children}</blockquote>,
+        code: ({ children, className }) => (
+          <code className={`rounded bg-black/5 px-1 py-0.5 font-mono text-[0.9em] dark:bg-white/[0.06] ${className ?? ""}`}>
+            {children}
+          </code>
+        ),
+        pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[18px] bg-black/5 p-3 dark:bg-white/[0.06]">{children}</pre>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
   );
 }
 
@@ -43,6 +76,12 @@ interface ThreadChatPanelProps {
   isSending: boolean;
   errorMessage?: string | null;
   defaultOther: (provider?: AIProvider) => AIProvider;
+  canSend?: boolean;
+  canUseTools?: boolean;
+  onReplyToMessage?: (message: DeepDiveUIMessage) => void;
+  onReplyInHumanChat?: (message: DeepDiveUIMessage) => void;
+  replyTo?: { messageId: string; label: string } | null;
+  onCancelReply?: () => void;
 }
 
 export function ThreadChatPanel({
@@ -54,17 +93,52 @@ export function ThreadChatPanel({
   isSending,
   errorMessage,
   defaultOther,
+  canSend = true,
+  canUseTools = true,
+  onReplyToMessage,
+  onReplyInHumanChat,
+  replyTo,
+  onCancelReply,
 }: ThreadChatPanelProps) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const visibleMessages = thread.messages.filter(hasRenderableParts);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [visibleMessages, isSending]);
+    const el = scrollerRef.current;
+    if (!el) return;
+    const isNearBottom = () => el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    stickToBottomRef.current = isNearBottom();
+    const onScroll = () => {
+      stickToBottomRef.current = isNearBottom();
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const lastMessageId = visibleMessages[visibleMessages.length - 1]?.id ?? "";
+
+  useLayoutEffect(() => {
+    if (!stickToBottomRef.current) return;
+    requestAnimationFrame(() => {
+      endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    });
+  }, [lastMessageId, isSending]);
+
+  const jumpToMessage = (messageId: string) => {
+    const el = document.getElementById(`thread-msg-${messageId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-primary/40", "rounded-[26px]");
+    window.setTimeout(() => {
+      el.classList.remove("ring-2", "ring-primary/40", "rounded-[26px]");
+    }, 900);
+  };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-5 sm:px-6">
+    <div className="flex h-full min-h-0 flex-col">
+      <div ref={scrollerRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-thin px-5 py-5 sm:px-6">
         <div className="space-y-4">
           {visibleMessages.length === 0 && (
             <div className="mx-auto mt-12 max-w-xl rounded-[26px] border border-dashed border-border/80 bg-white/55 px-6 py-8 text-center dark:bg-white/[0.03]">
@@ -85,9 +159,14 @@ export function ThreadChatPanel({
             const provider = message.metadata?.provider as AIProvider | undefined;
             const model = provider ? AI_MODELS[provider] : null;
             const text = getMessageText(message);
+            const showActions = !isUser && (canUseTools || Boolean(onReplyToMessage) || Boolean(onReplyInHumanChat));
+            const author = message.metadata?.author;
+            const authorLabel = author ? (author.name || author.email || "Member").toString() : null;
+            const replyToMessageId = message.metadata?.replyTo?.messageId;
+            const replyToExcerpt = message.metadata?.replyTo?.excerpt;
 
             return (
-              <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+              <div key={message.id} id={`thread-msg-${message.id}`} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[88%] ${isUser ? "" : "group relative"}`}>
                   {!isUser && model && (
                     <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
@@ -95,6 +174,15 @@ export function ThreadChatPanel({
                       <span>{model.name}</span>
                     </div>
                   )}
+                  {isUser && authorLabel ? (
+                    <div className="mb-2 flex items-center justify-end gap-2 text-xs text-muted-foreground">
+                      <span className="truncate">{authorLabel}</span>
+                      <Avatar className="h-6 w-6">
+                        <AvatarImage src={author?.image} />
+                        <AvatarFallback className="text-[10px]">{initials(authorLabel)}</AvatarFallback>
+                      </Avatar>
+                    </div>
+                  ) : null}
 
                   <div
                     className={`rounded-[22px] px-4 py-3 text-sm leading-7 shadow-sm ${
@@ -103,7 +191,7 @@ export function ThreadChatPanel({
                         : "border border-border/70 bg-white/78 text-foreground dark:bg-white/[0.05]"
                     }`}
                   >
-                    {!isUser && (
+                    {showActions ? (
                       <Popover>
                         <PopoverTrigger asChild>
                           <Button
@@ -116,20 +204,45 @@ export function ThreadChatPanel({
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent className="w-52 p-1" align="end">
-                          <Button variant="ghost" size="sm" onClick={() => onAskOther(visibleMessages.slice(0, idx + 1), provider)} className="w-full justify-start">
-                            Ask {AI_MODELS[defaultOther(provider)].name}
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => onVote(visibleMessages.slice(0, idx + 1))} className="w-full justify-start">
-                            Call a vote
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => onDebate(visibleMessages.slice(0, idx + 1))} className="w-full justify-start">
-                            Start a debate
-                          </Button>
+                          {onReplyToMessage && canSend ? (
+                            <Button variant="ghost" size="sm" onClick={() => onReplyToMessage(message)} className="w-full justify-start">
+                              Reply in thread
+                            </Button>
+                          ) : null}
+                          {onReplyInHumanChat ? (
+                            <Button variant="ghost" size="sm" onClick={() => onReplyInHumanChat(message)} className="w-full justify-start">
+                              Reply in team chat
+                            </Button>
+                          ) : null}
+                          {canUseTools ? (
+                            <>
+                              <Button variant="ghost" size="sm" onClick={() => onAskOther(visibleMessages.slice(0, idx + 1), provider)} className="w-full justify-start">
+                                Ask {AI_MODELS[defaultOther(provider)].name}
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => onVote(visibleMessages.slice(0, idx + 1))} className="w-full justify-start">
+                                Call a vote
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => onDebate(visibleMessages.slice(0, idx + 1))} className="w-full justify-start">
+                                Start a debate
+                              </Button>
+                            </>
+                          ) : null}
                         </PopoverContent>
                       </Popover>
-                    )}
+                    ) : null}
 
-                    <div className="whitespace-pre-wrap break-words text-pretty">{renderRichText(text)}</div>
+                    {replyToMessageId ? (
+                      <button
+                        type="button"
+                        onClick={() => jumpToMessage(replyToMessageId)}
+                        className="mb-3 w-full rounded-[18px] border border-border/70 bg-white/60 px-3 py-2 text-left text-xs dark:bg-white/[0.03]"
+                      >
+                        <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">In reply to</div>
+                        <div className="mt-1 truncate text-foreground">{replyToExcerpt || "View message"}</div>
+                      </button>
+                    ) : null}
+
+                    <div className="break-words text-pretty">{renderMarkdown(text)}</div>
                   </div>
 
                   {!isUser && message.metadata?.routingNote && (
@@ -163,7 +276,17 @@ export function ThreadChatPanel({
         <ChatInput
           onSend={onSend}
           placeholder="Ask the thread a question or mention a model with @GPT, @Gemini, or @Claude"
-          disabled={isSending}
+          disabled={isSending || !canSend}
+          autoFocus={true}
+          reply={
+            replyTo
+              ? {
+                  label: replyTo.label,
+                  onClick: () => jumpToMessage(replyTo.messageId),
+                  onCancel: onCancelReply,
+                }
+              : null
+          }
         />
       </div>
     </div>

@@ -3,43 +3,94 @@ import { v } from "convex/values";
 import type { AIProvider } from "../src/types/ai";
 import type {
   DeepDiveRecord,
+  DeepDiveRole,
+  DeepDiveMember,
   DeepDiveThreadRecord,
   DeepDiveUIMessage,
+  HumanChatMessage,
   SharedUploadRecord,
   TeamworkMessage,
   VoteResult,
 } from "../src/lib/deep-dive-types";
-import { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 const PROVIDERS = ["gpt", "gemini", "claude"] as const satisfies readonly AIProvider[];
 
-async function getAuthenticatedUser(ctx: QueryCtx | MutationCtx) {
+const ROLE_RANK: Record<DeepDiveRole, number> = {
+  owner: 3,
+  editor: 2,
+  commenter: 1,
+  viewer: 0,
+};
+
+function maxRole(a: DeepDiveRole, b: DeepDiveRole) {
+  return ROLE_RANK[a] >= ROLE_RANK[b] ? a : b;
+}
+
+async function requireIdentity(ctx: QueryCtx | MutationCtx) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     throw new Error("Not authenticated");
   }
+  return identity;
+}
+
+async function getExistingUserId(ctx: QueryCtx): Promise<Id<"users"> | null> {
+  const identity = await requireIdentity(ctx);
 
   const user = await ctx.db
     .query("users")
     .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
     .unique();
 
-  if (!user) {
-    // This could happen if the user is authenticated but not in our DB yet
-    const userId = await (ctx as MutationCtx).db.insert("users", {
-      name: identity.name,
-      email: identity.email,
-      image: identity.pictureUrl,
-      tokenIdentifier: identity.tokenIdentifier,
-    });
-    return userId;
-  }
+  return user?._id ?? null;
+}
 
-  return user._id;
+async function getOrCreateUserId(ctx: MutationCtx): Promise<Id<"users">> {
+  const identity = await requireIdentity(ctx);
+
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
+    .unique();
+
+  if (user) return user._id;
+
+  return await ctx.db.insert("users", {
+    name: identity.name,
+    email: identity.email,
+    image: identity.pictureUrl,
+    tokenIdentifier: identity.tokenIdentifier,
+  });
 }
 
 function now() {
   return Date.now();
+}
+
+async function getRoleForUser(
+  ctx: QueryCtx | MutationCtx,
+  args: { deepDiveId: Id<"deepDives">; userId: Id<"users"> },
+): Promise<DeepDiveRole | null> {
+  const dive = await ctx.db.get(args.deepDiveId);
+  if (!dive) return null;
+  if (dive.userId === args.userId) return "owner";
+
+  const membership = await ctx.db
+    .query("deepDiveMemberships")
+    .withIndex("by_deepDiveId_and_userId", (q) =>
+      q.eq("deepDiveId", args.deepDiveId).eq("userId", args.userId),
+    )
+    .unique();
+
+  return membership?.role ?? null;
+}
+
+function requireRole(role: DeepDiveRole | null, allowed: DeepDiveRole[]) {
+  if (!role || !allowed.includes(role)) {
+    throw new Error("Unauthorized");
+  }
+  return role;
 }
 
 function normalizeProviders(providers?: string[]) {
@@ -62,35 +113,20 @@ function firstTextPart(message: DeepDiveUIMessage | undefined) {
   return "";
 }
 
-function rowToThread(row: {
-  _id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  type: "chat" | "vote" | "teamwork";
-  messages: DeepDiveUIMessage[];
-  voteResults?: VoteResult[];
-  teamworkMessages?: TeamworkMessage[];
-}): DeepDiveThreadRecord {
+function rowToThread(row: Doc<"threads">): DeepDiveThreadRecord {
   return {
     id: row._id,
     title: row.title,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     type: row.type,
-    messages: row.messages ?? [],
-    voteResults: row.voteResults,
-    teamworkMessages: row.teamworkMessages,
+    messages: (row.messages ?? []) as DeepDiveUIMessage[],
+    voteResults: row.voteResults as VoteResult[] | undefined,
+    teamworkMessages: row.teamworkMessages as TeamworkMessage[] | undefined,
   };
 }
 
-function rowToUpload(row: {
-  _id: string;
-  name: string;
-  type: string;
-  url: string;
-  createdAt: number;
-}): SharedUploadRecord {
+function rowToUpload(row: Doc<"uploads">): SharedUploadRecord {
   return {
     id: row._id,
     name: row.name,
@@ -100,17 +136,21 @@ function rowToUpload(row: {
   };
 }
 
-async function hydrateDeepDive(ctx: any, deepDiveId: string): Promise<DeepDiveRecord | null> {
+async function hydrateDeepDive(
+  ctx: QueryCtx,
+  deepDiveId: Id<"deepDives">,
+  myRole: DeepDiveRole,
+): Promise<DeepDiveRecord | null> {
   const dive = await ctx.db.get(deepDiveId);
   if (!dive) return null;
 
   const threads = await ctx.db
     .query("threads")
-    .withIndex("by_deepDiveId_updatedAt", (q: any) => q.eq("deepDiveId", deepDiveId))
+    .withIndex("by_deepDiveId_updatedAt", (q) => q.eq("deepDiveId", deepDiveId))
     .collect();
   const uploads = await ctx.db
     .query("uploads")
-    .withIndex("by_deepDiveId_createdAt", (q: any) => q.eq("deepDiveId", deepDiveId))
+    .withIndex("by_deepDiveId_createdAt", (q) => q.eq("deepDiveId", deepDiveId))
     .collect();
 
   return {
@@ -119,28 +159,50 @@ async function hydrateDeepDive(ctx: any, deepDiveId: string): Promise<DeepDiveRe
     providers: normalizeProviders(dive.providers),
     createdAt: dive.createdAt,
     updatedAt: dive.updatedAt,
+    myRole,
     threads: threads
-      .sort((a: any, b: any) => b.updatedAt - a.updatedAt)
-      .map((thread: any) => rowToThread(thread)),
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((thread) => rowToThread(thread)),
     uploads: uploads
-      .sort((a: any, b: any) => b.createdAt - a.createdAt)
-      .map((upload: any) => rowToUpload(upload)),
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((upload) => rowToUpload(upload)),
   };
 }
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthenticatedUser(ctx);
-    const dives = await ctx.db
+    const userId = await getExistingUserId(ctx);
+    if (!userId) return [];
+
+    const owned = await ctx.db
       .query("deepDives")
       .withIndex("by_userId_updatedAt", (q) => q.eq("userId", userId))
       .collect();
-    const hydrated = await Promise.all(
-      dives
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map((dive) => hydrateDeepDive(ctx, dive._id)),
-    );
+
+    const memberships = await ctx.db
+      .query("deepDiveMemberships")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    const diveIdToRole = new Map<Id<"deepDives">, DeepDiveRole>();
+    for (const dive of owned) {
+      diveIdToRole.set(dive._id, "owner");
+    }
+
+    for (const membership of memberships) {
+      const existing = diveIdToRole.get(membership.deepDiveId);
+      diveIdToRole.set(membership.deepDiveId, existing ? maxRole(existing, membership.role) : membership.role);
+    }
+
+    const dives: Array<{ dive: Doc<"deepDives">; role: DeepDiveRole }> = [];
+    for (const [deepDiveId, role] of diveIdToRole) {
+      const dive = await ctx.db.get(deepDiveId);
+      if (dive) dives.push({ dive, role });
+    }
+
+    dives.sort((a, b) => b.dive.updatedAt - a.dive.updatedAt);
+    const hydrated = await Promise.all(dives.map(({ dive, role }) => hydrateDeepDive(ctx, dive._id, role)));
     return hydrated.filter(Boolean) as DeepDiveRecord[];
   },
 });
@@ -148,12 +210,12 @@ export const list = query({
 export const get = query({
   args: { diveId: v.id("deepDives") },
   handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUser(ctx);
-    const dive = await ctx.db.get(args.diveId);
-    if (!dive || dive.userId !== userId) {
-      return null;
-    }
-    return hydrateDeepDive(ctx, args.diveId);
+    const userId = await getExistingUserId(ctx);
+    if (!userId) return null;
+
+    const role = await getRoleForUser(ctx, { deepDiveId: args.diveId, userId });
+    if (!role) return null;
+    return hydrateDeepDive(ctx, args.diveId, role);
   },
 });
 
@@ -163,7 +225,7 @@ export const createDeepDive = mutation({
     providers: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUser(ctx);
+    const userId = await getOrCreateUserId(ctx);
     const timestamp = now();
     const deepDiveId = await ctx.db.insert("deepDives", {
       userId,
@@ -171,6 +233,13 @@ export const createDeepDive = mutation({
       providers: normalizeProviders(args.providers),
       createdAt: timestamp,
       updatedAt: timestamp,
+    });
+
+    await ctx.db.insert("deepDiveMemberships", {
+      deepDiveId,
+      userId,
+      role: "owner",
+      createdAt: timestamp,
     });
 
     await ctx.db.insert("threads", {
@@ -194,9 +263,9 @@ export const createThread = mutation({
     seedMessages: v.optional(v.array(v.any())),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUser(ctx);
-    const dive = await ctx.db.get(args.deepDiveId);
-    if (!dive || dive.userId !== userId) throw new Error("Unauthorized");
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor"]);
 
     const timestamp = now();
     const threadId = await ctx.db.insert("threads", {
@@ -219,9 +288,9 @@ export const addUploads = mutation({
     files: v.array(v.object({ name: v.string(), type: v.string(), url: v.string() })),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUser(ctx);
-    const dive = await ctx.db.get(args.deepDiveId);
-    if (!dive || dive.userId !== userId) throw new Error("Unauthorized");
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor"]);
 
     const timestamp = now();
     for (const file of args.files) {
@@ -243,12 +312,63 @@ export const removeUpload = mutation({
     uploadId: v.id("uploads"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUser(ctx);
-    const dive = await ctx.db.get(args.deepDiveId);
-    if (!dive || dive.userId !== userId) throw new Error("Unauthorized");
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor"]);
 
     await ctx.db.delete(args.uploadId);
     await ctx.db.patch(args.deepDiveId, { updatedAt: now() });
+  },
+});
+
+export const deleteDeepDive = mutation({
+  args: { deepDiveId: v.id("deepDives") },
+  handler: async (ctx, args) => {
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner"]);
+
+    const threads = await ctx.db
+      .query("threads")
+      .withIndex("by_deepDiveId_updatedAt", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+    for (const thread of threads) {
+      await ctx.db.delete(thread._id);
+    }
+
+    const uploads = await ctx.db
+      .query("uploads")
+      .withIndex("by_deepDiveId_createdAt", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+    for (const upload of uploads) {
+      await ctx.db.delete(upload._id);
+    }
+
+    const memberships = await ctx.db
+      .query("deepDiveMemberships")
+      .withIndex("by_deepDiveId", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+    for (const membership of memberships) {
+      await ctx.db.delete(membership._id);
+    }
+
+    const invites = await ctx.db
+      .query("deepDiveInvites")
+      .withIndex("by_deepDiveId", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+    for (const invite of invites) {
+      await ctx.db.delete(invite._id);
+    }
+
+    const humanMessages = await ctx.db
+      .query("humanChatMessages")
+      .withIndex("by_deepDiveId_and_createdAt", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+    for (const message of humanMessages) {
+      await ctx.db.delete(message._id);
+    }
+
+    await ctx.db.delete(args.deepDiveId);
   },
 });
 
@@ -256,14 +376,22 @@ export const appendUserMessage = mutation({
   args: {
     threadId: v.id("threads"),
     text: v.string(),
+    replyToMessageId: v.optional(v.string()),
+    replyToExcerpt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthenticatedUser(ctx);
+    const userId = await getOrCreateUserId(ctx);
     const thread = await ctx.db.get(args.threadId);
     if (!thread) throw new Error("Thread not found");
 
-    const dive = await ctx.db.get(thread.deepDiveId);
-    if (!dive || dive.userId !== userId) throw new Error("Unauthorized");
+    const role = await getRoleForUser(ctx, { deepDiveId: thread.deepDiveId, userId });
+    requireRole(role, ["owner", "editor", "commenter"]);
+
+    const trimmed = args.text.trim();
+    if (!trimmed) return;
+
+    const user = await ctx.db.get(userId);
+    const authorName = (user?.name || user?.email || "Human").toString();
 
     const timestamp = now();
     const nextMessages = [
@@ -271,7 +399,21 @@ export const appendUserMessage = mutation({
       {
         id: `msg-${timestamp}-user`,
         role: "user",
-        parts: [{ type: "text", text: args.text.trim() }],
+        metadata: {
+          author: {
+            userId,
+            name: user?.name,
+            email: user?.email,
+            image: user?.image,
+          },
+          replyTo: args.replyToMessageId
+            ? {
+                messageId: args.replyToMessageId,
+                excerpt: args.replyToExcerpt?.trim() || undefined,
+              }
+            : undefined,
+        },
+        parts: [{ type: "text", text: trimmed }],
       },
     ] as DeepDiveUIMessage[];
 
@@ -287,6 +429,405 @@ export const appendUserMessage = mutation({
   },
 });
 
+export const createInvite = mutation({
+  args: {
+    deepDiveId: v.id("deepDives"),
+    email: v.optional(v.string()),
+    role: v.union(v.literal("editor"), v.literal("commenter"), v.literal("viewer")),
+    expiresInDays: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const inviterId = await getOrCreateUserId(ctx);
+    const inviterRole = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId: inviterId });
+    requireRole(inviterRole, ["owner", "editor"]);
+
+    const cleanedEmail = args.email?.trim().toLowerCase() || undefined;
+    const timestamp = now();
+    const expiresAt = Number.isFinite(args.expiresInDays)
+      ? timestamp + Math.max(1, Math.min(30, Math.floor(args.expiresInDays ?? 7))) * 24 * 60 * 60 * 1000
+      : timestamp + 7 * 24 * 60 * 60 * 1000;
+
+    const token =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${timestamp}-${Math.random().toString(16).slice(2)}`;
+
+    await ctx.db.insert("deepDiveInvites", {
+      deepDiveId: args.deepDiveId,
+      token,
+      email: cleanedEmail,
+      role: args.role,
+      createdBy: inviterId,
+      createdAt: timestamp,
+      expiresAt,
+    });
+
+    return { token };
+  },
+});
+
+export const listInvites = query({
+  args: { deepDiveId: v.id("deepDives") },
+  handler: async (ctx, args) => {
+    const userId = await getExistingUserId(ctx);
+    if (!userId) return [];
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor"]);
+
+    const invites = await ctx.db
+      .query("deepDiveInvites")
+      .withIndex("by_deepDiveId", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+
+    return invites
+      .filter((invite) => !invite.usedAt)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((invite) => ({
+        token: invite.token,
+        email: invite.email ?? null,
+        role: invite.role as "editor" | "commenter" | "viewer",
+        createdAt: invite.createdAt,
+        expiresAt: invite.expiresAt ?? null,
+      }));
+  },
+});
+
+export const listMyInvites = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await requireIdentity(ctx);
+    const email = identity.email?.trim().toLowerCase();
+    if (!email) return [];
+
+    const invites = await ctx.db
+      .query("deepDiveInvites")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .collect();
+
+    const fresh = invites
+      .filter((invite) => !invite.usedAt)
+      .filter((invite) => !invite.declinedAt)
+      .filter((invite) => !invite.expiresAt || invite.expiresAt >= now())
+      .sort((a, b) => b.createdAt - a.createdAt);
+
+    const results: Array<{
+      token: string;
+      deepDiveId: Id<"deepDives">;
+      title: string;
+      role: "editor" | "commenter" | "viewer";
+      createdAt: number;
+      expiresAt: number | null;
+    }> = [];
+
+    for (const invite of fresh) {
+      const dive = await ctx.db.get(invite.deepDiveId);
+      if (!dive) continue;
+      results.push({
+        token: invite.token,
+        deepDiveId: invite.deepDiveId,
+        title: dive.title,
+        role: invite.role as "editor" | "commenter" | "viewer",
+        createdAt: invite.createdAt,
+        expiresAt: invite.expiresAt ?? null,
+      });
+    }
+
+    return results;
+  },
+});
+
+export const declineInvite = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const userId = await getOrCreateUserId(ctx);
+
+    const token = args.token.trim();
+    if (!token) throw new Error("Invalid invite token");
+
+    const invite = await ctx.db
+      .query("deepDiveInvites")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .unique();
+    if (!invite) throw new Error("Invite not found");
+    if (invite.usedAt) throw new Error("Invite already used");
+    if (invite.declinedAt) return { ok: true };
+    if (invite.expiresAt && invite.expiresAt < now()) throw new Error("Invite expired");
+
+    const inviteEmail = invite.email?.trim().toLowerCase();
+    if (inviteEmail) {
+      const email = identity.email?.trim().toLowerCase();
+      if (!email) throw new Error("No email found for this account");
+      if (inviteEmail !== email) throw new Error("This invite is for a different email");
+    }
+
+    await ctx.db.patch(invite._id, {
+      declinedAt: now(),
+      declinedBy: userId,
+    });
+
+    return { ok: true };
+  },
+});
+
+export const getInviteInfo = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const token = args.token.trim();
+    if (!token) return null;
+
+    const invite = await ctx.db
+      .query("deepDiveInvites")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .unique();
+    if (!invite) return null;
+    if (invite.usedAt) return null;
+    if (invite.declinedAt) return null;
+    if (invite.expiresAt && invite.expiresAt < now()) return null;
+
+    const inviteEmail = invite.email?.trim().toLowerCase();
+    if (inviteEmail) {
+      const userEmail = identity.email?.trim().toLowerCase();
+      if (!userEmail || inviteEmail !== userEmail) return null;
+    }
+
+    const dive = await ctx.db.get(invite.deepDiveId);
+    if (!dive) return null;
+
+    return {
+      token: invite.token,
+      deepDiveId: invite.deepDiveId,
+      title: dive.title,
+      role: invite.role as "editor" | "commenter" | "viewer",
+      createdAt: invite.createdAt,
+      expiresAt: invite.expiresAt ?? null,
+    };
+  },
+});
+
+export const acceptInvite = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const userId = await getOrCreateUserId(ctx);
+
+    const invite = await ctx.db
+      .query("deepDiveInvites")
+      .withIndex("by_token", (q) => q.eq("token", args.token.trim()))
+      .unique();
+    if (!invite) throw new Error("Invite not found");
+    if (invite.usedAt) throw new Error("Invite already used");
+    if (invite.declinedBy && invite.declinedBy === userId) throw new Error("Invite was declined");
+    if (invite.expiresAt && invite.expiresAt < now()) throw new Error("Invite expired");
+
+    const inviteEmail = invite.email?.trim().toLowerCase();
+    const userEmail = identity.email?.trim().toLowerCase();
+    if (inviteEmail && inviteEmail !== userEmail) {
+      throw new Error("Invite was sent to a different email");
+    }
+
+    const already = await ctx.db
+      .query("deepDiveMemberships")
+      .withIndex("by_deepDiveId_and_userId", (q) => q.eq("deepDiveId", invite.deepDiveId).eq("userId", userId))
+      .unique();
+
+    const timestamp = now();
+    if (!already) {
+      await ctx.db.insert("deepDiveMemberships", {
+        deepDiveId: invite.deepDiveId,
+        userId,
+        role: invite.role,
+        invitedBy: invite.createdBy,
+        createdAt: timestamp,
+      });
+    }
+
+    await ctx.db.patch(invite._id, { usedAt: timestamp, usedBy: userId });
+    await ctx.db.patch(invite.deepDiveId, { updatedAt: timestamp });
+
+    return { deepDiveId: invite.deepDiveId };
+  },
+});
+
+export const leaveDeepDive = mutation({
+  args: { deepDiveId: v.id("deepDives") },
+  handler: async (ctx, args) => {
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    if (!role) return { ok: true };
+    if (role === "owner") throw new Error("Owners cannot leave a Deep Dive. Transfer ownership or delete it.");
+
+    const membership = await ctx.db
+      .query("deepDiveMemberships")
+      .withIndex("by_deepDiveId_and_userId", (q) => q.eq("deepDiveId", args.deepDiveId).eq("userId", userId))
+      .unique();
+    if (membership) {
+      await ctx.db.delete(membership._id);
+      await ctx.db.patch(args.deepDiveId, { updatedAt: now() });
+    }
+
+    return { ok: true };
+  },
+});
+
+export const listMembers = query({
+  args: { deepDiveId: v.id("deepDives") },
+  handler: async (ctx, args): Promise<DeepDiveMember[]> => {
+    const userId = await getExistingUserId(ctx);
+    if (!userId) return [];
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor", "commenter", "viewer"]);
+
+    const dive = await ctx.db.get(args.deepDiveId);
+    if (!dive) return [];
+
+    const memberships = await ctx.db
+      .query("deepDiveMemberships")
+      .withIndex("by_deepDiveId", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+
+    const memberByUserId = new Map<Id<"users">, DeepDiveRole>();
+    memberByUserId.set(dive.userId, "owner");
+
+    for (const membership of memberships) {
+      const existing = memberByUserId.get(membership.userId);
+      const normalizedRole: DeepDiveRole =
+        membership.userId === dive.userId ? "owner" : (membership.role as DeepDiveRole);
+      memberByUserId.set(membership.userId, existing ? maxRole(existing, normalizedRole) : normalizedRole);
+    }
+
+    const members: DeepDiveMember[] = [];
+    for (const [memberUserId, memberRole] of memberByUserId) {
+      const user = await ctx.db.get(memberUserId);
+      members.push({
+        userId: memberUserId,
+        name: user?.name,
+        email: user?.email,
+        image: user?.image,
+        role: memberRole,
+      });
+    }
+
+    members.sort((a, b) => ROLE_RANK[b.role] - ROLE_RANK[a.role] || (a.email ?? "").localeCompare(b.email ?? ""));
+    return members;
+  },
+});
+
+export const updateMemberRole = mutation({
+  args: {
+    deepDiveId: v.id("deepDives"),
+    memberUserId: v.id("users"),
+    role: v.union(v.literal("editor"), v.literal("commenter"), v.literal("viewer")),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner"]);
+
+    const dive = await ctx.db.get(args.deepDiveId);
+    if (!dive) throw new Error("Deep Dive not found");
+    if (args.memberUserId === dive.userId) throw new Error("Cannot change owner role");
+
+    const membership = await ctx.db
+      .query("deepDiveMemberships")
+      .withIndex("by_deepDiveId_and_userId", (q) => q.eq("deepDiveId", args.deepDiveId).eq("userId", args.memberUserId))
+      .unique();
+    if (!membership) throw new Error("Member not found");
+
+    await ctx.db.patch(membership._id, { role: args.role });
+  },
+});
+
+export const removeMember = mutation({
+  args: { deepDiveId: v.id("deepDives"), memberUserId: v.id("users") },
+  handler: async (ctx, args) => {
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner"]);
+
+    const dive = await ctx.db.get(args.deepDiveId);
+    if (!dive) throw new Error("Deep Dive not found");
+    if (args.memberUserId === dive.userId) throw new Error("Cannot remove owner");
+
+    const membership = await ctx.db
+      .query("deepDiveMemberships")
+      .withIndex("by_deepDiveId_and_userId", (q) => q.eq("deepDiveId", args.deepDiveId).eq("userId", args.memberUserId))
+      .unique();
+    if (!membership) return;
+
+    await ctx.db.delete(membership._id);
+  },
+});
+
+export const listHumanChatMessages = query({
+  args: { deepDiveId: v.id("deepDives") },
+  handler: async (ctx, args): Promise<HumanChatMessage[]> => {
+    const userId = await getExistingUserId(ctx);
+    if (!userId) return [];
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor", "commenter", "viewer"]);
+
+    const rows = await ctx.db
+      .query("humanChatMessages")
+      .withIndex("by_deepDiveId_and_createdAt", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+
+    const messages: HumanChatMessage[] = [];
+    for (const row of rows) {
+      const author = await ctx.db.get(row.authorUserId);
+      messages.push({
+        id: row._id,
+        deepDiveId: row.deepDiveId,
+        author: {
+          userId: row.authorUserId,
+          name: author?.name,
+          email: author?.email,
+          image: author?.image,
+        },
+        text: row.text,
+        replyTo: row.replyToThreadMessageId
+          ? {
+              threadMessageId: row.replyToThreadMessageId,
+              excerpt: row.replyToExcerpt ?? undefined,
+            }
+          : undefined,
+        createdAt: row.createdAt,
+      });
+    }
+
+    return messages;
+  },
+});
+
+export const sendHumanChatMessage = mutation({
+  args: {
+    deepDiveId: v.id("deepDives"),
+    text: v.string(),
+    replyToThreadMessageId: v.optional(v.string()),
+    replyToExcerpt: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor", "commenter"]);
+
+    const trimmed = args.text.trim();
+    if (!trimmed) return;
+
+    const timestamp = now();
+    await ctx.db.insert("humanChatMessages", {
+      deepDiveId: args.deepDiveId,
+      authorUserId: userId,
+      text: trimmed,
+      replyToThreadMessageId: args.replyToThreadMessageId?.trim() || undefined,
+      replyToExcerpt: args.replyToExcerpt?.trim() || undefined,
+      createdAt: timestamp,
+    });
+    await ctx.db.patch(args.deepDiveId, { updatedAt: timestamp });
+  },
+});
+
 export const getUserByTokenIdentifier = internalQuery({
   args: { tokenIdentifier: v.string() },
   handler: async (ctx, args) => {
@@ -294,6 +835,18 @@ export const getUserByTokenIdentifier = internalQuery({
       .query("users")
       .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", args.tokenIdentifier))
       .unique();
+  },
+});
+
+export const getRoleForTokenIdentifierInDeepDive = internalQuery({
+  args: { deepDiveId: v.id("deepDives"), tokenIdentifier: v.string() },
+  handler: async (ctx, args): Promise<DeepDiveRole | null> => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", args.tokenIdentifier))
+      .unique();
+    if (!user) return null;
+    return await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId: user._id });
   },
 });
 

@@ -2,6 +2,7 @@ import { queryGeneric, mutationGeneric, internalQueryGeneric } from "convex/serv
 import { v } from "convex/values";
 
 const OPENROUTER_KEY = "openrouter_api_key";
+const GEMINI_KEY = "gemini_api_key";
 const query = queryGeneric;
 const mutation = mutationGeneric;
 const internalQuery = internalQueryGeneric;
@@ -14,17 +15,28 @@ function lastFour(value: string) {
 export const get = query({
   args: {},
   handler: async (ctx) => {
-    const record = await ctx.db
+    const openRouterRecord = await ctx.db
       .query("appSettings")
       .withIndex("by_key", (q) => q.eq("key", OPENROUTER_KEY))
       .unique();
 
-    const value = record?.value?.trim() || "";
+    const geminiRecord = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", GEMINI_KEY))
+      .unique();
+
+    const openRouterValue = openRouterRecord?.value?.trim() || "";
+    const geminiValue = geminiRecord?.value?.trim() || "";
     return {
       openRouter: {
-        configured: Boolean(value),
-        source: value ? "frontend" : "missing",
-        lastFour: lastFour(value),
+        configured: Boolean(openRouterValue),
+        source: openRouterValue ? "frontend" : "missing",
+        lastFour: lastFour(openRouterValue),
+      },
+      gemini: {
+        configured: Boolean(geminiValue),
+        source: geminiValue ? "frontend" : "missing",
+        lastFour: lastFour(geminiValue),
       },
     };
   },
@@ -72,12 +84,66 @@ export const clearOpenRouterKey = mutation({
   },
 });
 
+export const setGeminiKey = mutation({
+  args: { apiKey: v.string() },
+  handler: async (ctx, args) => {
+    const trimmed = args.apiKey.trim();
+    if (!trimmed) {
+      throw new Error("Gemini API key is required");
+    }
+
+    const existing = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", GEMINI_KEY))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        value: trimmed,
+        updatedAt: Date.now(),
+      });
+    } else {
+      await ctx.db.insert("appSettings", {
+        key: GEMINI_KEY,
+        value: trimmed,
+        updatedAt: Date.now(),
+      });
+    }
+  },
+});
+
+export const clearGeminiKey = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", GEMINI_KEY))
+      .unique();
+
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    }
+  },
+});
+
 export const getOpenRouterKey = internalQuery({
   args: {},
   handler: async (ctx) => {
     const existing = await ctx.db
       .query("appSettings")
       .withIndex("by_key", (q) => q.eq("key", OPENROUTER_KEY))
+      .unique();
+
+    return existing?.value?.trim() || "";
+  },
+});
+
+export const getGeminiKey = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", GEMINI_KEY))
       .unique();
 
     return existing?.value?.trim() || "";

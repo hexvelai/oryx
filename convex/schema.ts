@@ -17,6 +17,43 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_userId_updatedAt", ["userId", "updatedAt"]),
 
+  deepDiveMemberships: defineTable({
+    deepDiveId: v.id("deepDives"),
+    userId: v.id("users"),
+    role: v.union(v.literal("owner"), v.literal("editor"), v.literal("commenter"), v.literal("viewer")),
+    invitedBy: v.optional(v.id("users")),
+    createdAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_deepDiveId", ["deepDiveId"])
+    .index("by_deepDiveId_and_userId", ["deepDiveId", "userId"]),
+
+  deepDiveInvites: defineTable({
+    deepDiveId: v.id("deepDives"),
+    token: v.string(),
+    email: v.optional(v.string()),
+    role: v.union(v.literal("editor"), v.literal("commenter"), v.literal("viewer")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    expiresAt: v.optional(v.number()),
+    usedAt: v.optional(v.number()),
+    usedBy: v.optional(v.id("users")),
+    declinedAt: v.optional(v.number()),
+    declinedBy: v.optional(v.id("users")),
+  })
+    .index("by_token", ["token"])
+    .index("by_deepDiveId", ["deepDiveId"])
+    .index("by_email", ["email"]),
+
+  humanChatMessages: defineTable({
+    deepDiveId: v.id("deepDives"),
+    authorUserId: v.id("users"),
+    text: v.string(),
+    replyToThreadMessageId: v.optional(v.string()),
+    replyToExcerpt: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_deepDiveId_and_createdAt", ["deepDiveId", "createdAt"]),
+
   threads: defineTable({
     deepDiveId: v.id("deepDives"),
     title: v.string(),

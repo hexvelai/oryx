@@ -32,9 +32,12 @@ export function AppHeader() {
   const [openProviders, setOpenProviders] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [serverKeyInput, setServerKeyInput] = useState("");
+  const [geminiKeyInput, setGeminiKeyInput] = useState("");
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [savingServerKey, setSavingServerKey] = useState(false);
   const [clearingServerKey, setClearingServerKey] = useState(false);
+  const [savingGeminiKey, setSavingGeminiKey] = useState(false);
+  const [clearingGeminiKey, setClearingGeminiKey] = useState(false);
 
   const allProviders = useMemo(() => Object.keys(AI_MODELS) as AIProvider[], []);
   const deepDivesActive = location.pathname === "/" || location.pathname.startsWith("/dive/");
@@ -50,12 +53,20 @@ export function AppHeader() {
   const appSettings = useConvexQuery(convexApi.settings.get, {});
   const saveOpenRouterKey = useConvexMutation(convexApi.settings.setOpenRouterKey);
   const clearOpenRouterKey = useConvexMutation(convexApi.settings.clearOpenRouterKey);
+  const saveGeminiKey = useConvexMutation(convexApi.settings.setGeminiKey);
+  const clearGeminiKey = useConvexMutation(convexApi.settings.clearGeminiKey);
 
   const openRouterStatus = appSettings?.openRouter;
+  const geminiStatus = appSettings?.gemini;
   const openRouterLabel =
     openRouterStatus?.source === "frontend"
       ? "Saved in app"
       : "Not configured";
+  const geminiLabel =
+    geminiStatus?.source === "frontend"
+      ? "Saved in app"
+      : "Not configured";
+  const serverKeysConfigured = Boolean(openRouterStatus?.configured || geminiStatus?.configured);
 
   const saveServerKey = async () => {
     const trimmed = serverKeyInput.trim();
@@ -85,6 +96,34 @@ export function AppHeader() {
     }
   };
 
+  const saveGeminiServerKey = async () => {
+    const trimmed = geminiKeyInput.trim();
+    if (!trimmed) return;
+    setSettingsError(null);
+    setSavingGeminiKey(true);
+    try {
+      await saveGeminiKey({ apiKey: trimmed });
+      setGeminiKeyInput("");
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : "Failed to save key");
+    } finally {
+      setSavingGeminiKey(false);
+    }
+  };
+
+  const clearGeminiServerKey = async () => {
+    setSettingsError(null);
+    setClearingGeminiKey(true);
+    try {
+      await clearGeminiKey({});
+      setGeminiKeyInput("");
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : "Failed to clear key");
+    } finally {
+      setClearingGeminiKey(false);
+    }
+  };
+
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-border/70 bg-background/75 backdrop-blur-xl supports-[backdrop-filter]:bg-background/65">
@@ -95,10 +134,10 @@ export function AppHeader() {
             className="group flex min-w-0 items-center gap-3 text-left"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-white/70 text-[11px] font-semibold uppercase tracking-[0.22em] text-foreground shadow-sm transition-transform duration-300 group-hover:-translate-y-0.5 dark:bg-white/[0.06] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
-              M
+              T
             </div>
             <div className="min-w-0">
-              <div className="font-display text-xl leading-none text-foreground">mozaic</div>
+              <div className="font-display text-xl leading-none text-foreground">teselix</div>
               <div className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                 {deepDivesActive ? "Deep Dives workspace" : "Conversation lab"}
               </div>
@@ -153,7 +192,7 @@ export function AppHeader() {
               className="rounded-full border-border/80 bg-white/75 px-4 dark:bg-white/[0.06]"
             >
               <span
-                className={`h-2 w-2 rounded-full ${openRouterStatus?.configured ? "bg-[hsl(var(--ai-gpt))]" : "bg-destructive"}`}
+                className={`h-2 w-2 rounded-full ${serverKeysConfigured ? "bg-[hsl(var(--ai-gpt))]" : "bg-destructive"}`}
               />
               AI Settings
             </Button>
@@ -236,6 +275,53 @@ export function AppHeader() {
             <DialogTitle>AI Settings</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="rounded-[24px] border border-border/80 bg-card/70 p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Deep Dives</div>
+                  <div className="mt-2 text-lg text-foreground">Server Gemini key</div>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+                    Deep Dives can use Google Gemini directly. Saving it here stores it in the local app database on this machine.
+                  </p>
+                </div>
+                <div className="rounded-full border border-border/80 bg-background/70 px-3 py-1 text-xs text-muted-foreground">
+                  {appSettings === undefined ? "Checking..." : geminiLabel}
+                  {geminiStatus?.lastFour ? ` • ••••${geminiStatus.lastFour}` : ""}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <Input
+                  value={geminiKeyInput}
+                  onChange={(e) => setGeminiKeyInput(e.target.value)}
+                  placeholder="Paste your Gemini API key"
+                  type="password"
+                  className="flex-1"
+                />
+                <Button
+                  onClick={saveGeminiServerKey}
+                  disabled={!geminiKeyInput.trim() || savingGeminiKey}
+                  className="rounded-full"
+                >
+                  Save key
+                </Button>
+                {geminiStatus?.source === "frontend" && (
+                  <Button
+                    variant="outline"
+                    onClick={clearGeminiServerKey}
+                    disabled={clearingGeminiKey}
+                    className="rounded-full"
+                  >
+                    Clear saved key
+                  </Button>
+                )}
+              </div>
+
+              {settingsError && (
+                <div className="mt-3 text-sm text-destructive">{settingsError}</div>
+              )}
+            </div>
+
             <div className="rounded-[24px] border border-border/80 bg-card/70 p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
