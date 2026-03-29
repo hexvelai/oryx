@@ -4,6 +4,14 @@ import { ConvexReactClient } from "convex/react";
 import { ClerkProvider, useAuth } from "@clerk/clerk-react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import App from "./App.tsx";
+import "@fontsource/google-sans/latin-400.css";
+import "@fontsource/google-sans/latin-500.css";
+import "@fontsource/google-sans/latin-600.css";
+import "@fontsource/google-sans/latin-700.css";
+import "@fontsource/google-sans/latin-ext-400.css";
+import "@fontsource/google-sans/latin-ext-500.css";
+import "@fontsource/google-sans/latin-ext-600.css";
+import "@fontsource/google-sans/latin-ext-700.css";
 import "./index.css";
 import "katex/dist/katex.min.css";
 
@@ -72,7 +80,7 @@ createRoot(document.getElementById("root")!).render(
         display: "grid",
         placeItems: "center",
         padding: "24px",
-        fontFamily: "\"Instrument Sans\", system-ui, sans-serif",
+        fontFamily: '"Google Sans", system-ui, sans-serif',
         background: "hsl(38 29% 96%)",
         color: "hsl(22 20% 14%)",
       }}
