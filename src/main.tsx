@@ -48,13 +48,13 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
     const hint = inferSetupHint(message);
 
     return (
-      <div className="app-canvas min-h-screen bg-background text-foreground">
-        <div className="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-6 py-12">
-          <div className="surface-panel w-full rounded-[28px] p-8">
-            <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">App Error</div>
-            <h1 className="mt-3 text-4xl text-foreground">The app failed to start.</h1>
-            <p className="mt-4 text-sm leading-7 text-muted-foreground">{hint}</p>
-            <div className="mt-6 rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+      <div className="gradient-bg-mesh min-h-screen text-foreground">
+        <div className="mx-auto flex min-h-screen w-full max-w-2xl items-center justify-center px-6 py-12">
+          <div className="w-full animate-fade-up">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">App Error</p>
+            <h1 className="mt-3 text-3xl font-display text-foreground">The app failed to start.</h1>
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{hint}</p>
+            <div className="mt-6 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
               {message}
             </div>
           </div>
@@ -81,12 +81,12 @@ createRoot(document.getElementById("root")!).render(
         placeItems: "center",
         padding: "24px",
         fontFamily: '"Google Sans", system-ui, sans-serif',
-        background: "hsl(38 29% 96%)",
-        color: "hsl(22 20% 14%)",
+        background: "hsl(240 6% 6%)",
+        color: "hsl(240 5% 93%)",
       }}
     >
       <div style={{ maxWidth: 560, lineHeight: 1.6 }}>
-        Missing <code>VITE_CONVEX_URL</code> or <code>VITE_CLERK_PUBLISHABLE_KEY</code>. 
+        Missing <code>VITE_CONVEX_URL</code> or <code>VITE_CLERK_PUBLISHABLE_KEY</code>.
         Add them in <code>.env.local</code> to run the app.
       </div>
     </div>

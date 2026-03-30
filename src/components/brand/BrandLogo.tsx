@@ -5,10 +5,9 @@ type BrandLogoProps = {
   iconClassName?: string;
   labelClassName?: string;
   showLabel?: boolean;
-  /** Smaller mark for dense toolbars */
   compact?: boolean;
-  /** Centered header mark: big draw via scale; keep layout box small so the bar height stays fixed */
   large?: boolean;
+  gradient?: boolean;
 };
 
 export function BrandLogo({
@@ -18,19 +17,20 @@ export function BrandLogo({
   showLabel = true,
   compact = false,
   large = false,
+  gradient = false,
 }: BrandLogoProps) {
   const wrap = compact
-    ? "h-9 w-9"
+    ? "h-8 w-8"
     : large
       ? "flex h-9 w-9 items-center justify-center sm:h-10 sm:w-10"
-      : "h-14 w-14";
+      : "h-10 w-10";
   const img = compact
-    ? "h-7 w-7"
+    ? "h-6 w-6"
     : large
       ? "h-8 w-8 origin-center scale-[2.15] object-contain sm:h-9 sm:w-9 sm:scale-[2.35]"
-      : "h-10 w-10";
-  const gap = large ? (showLabel ? "gap-3" : "gap-0") : "gap-3";
-  const labelSize = large ? "text-2xl sm:text-3xl" : "text-xl";
+      : "h-8 w-8";
+  const gap = large ? (showLabel ? "gap-3" : "gap-0") : "gap-2.5";
+  const labelSize = large ? "text-2xl sm:text-3xl" : "text-lg";
 
   return (
     <div className={cn("flex items-center", gap, className)}>
@@ -49,7 +49,12 @@ export function BrandLogo({
         />
       </span>
       {showLabel ? (
-        <span className={cn("font-display leading-none text-foreground", labelSize, labelClassName)}>
+        <span className={cn(
+          "font-display leading-none",
+          gradient ? "gradient-text" : "text-foreground",
+          labelSize,
+          labelClassName,
+        )}>
           oryx
         </span>
       ) : null}

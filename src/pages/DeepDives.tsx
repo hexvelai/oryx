@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Clock3, MoreHorizontal, PencilLine, Trash2 } from "lucide-react";
+import { ArrowRight, Clock3, MoreHorizontal, PencilLine, Plus, Trash2 } from "lucide-react";
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
 import { AI_MODELS } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
@@ -158,65 +158,74 @@ export default function DeepDives() {
   };
 
   return (
-    <div className="app-canvas min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       <AppHeader />
 
-      <main className="mx-auto w-full max-w-3xl px-4 pb-16 pt-10 sm:px-6">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <main className="mx-auto w-full max-w-2xl px-4 pb-20 pt-12 sm:px-6">
+        <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="font-display text-3xl tracking-tight text-foreground sm:text-4xl">Projects</h1>
-            <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">
-              Open a project to work with the agent. Threads and team notes live inside each project.
+            <h1 className="font-display text-3xl tracking-tight text-foreground">Projects</h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Each project holds threads, notes, and shared context.
             </p>
           </div>
-          <Button onClick={onNew} className="h-10 shrink-0 rounded-md px-4">
+          <button
+            onClick={onNew}
+            className="btn-gradient flex h-10 shrink-0 items-center gap-2 rounded-xl px-5 text-sm font-medium shadow-md gradient-glow"
+          >
+            <Plus className="h-4 w-4" />
             New project
-            <ArrowRight className="ml-1 h-4 w-4" />
-          </Button>
+          </button>
         </header>
 
         {myInvites.length ? (
           <section className="mt-10 space-y-3">
-            <h2 className="text-sm font-medium text-foreground">Invitations</h2>
-            <ul className="space-y-2">
+            <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Invitations</h2>
+            <div className="space-y-2">
               {myInvites.map((invite) => (
-                <li
+                <div
                   key={invite.token}
-                  className="surface-panel flex flex-col gap-3 rounded-lg p-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 rounded-xl border border-border/50 p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-foreground">{invite.title}</p>
-                    <p className="text-xs text-muted-foreground">Role: {invite.role}</p>
+                    <p className="truncate text-sm font-medium text-foreground">{invite.title}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Role: {invite.role}</p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" className="rounded-md" onClick={() => void accept(invite.token)}>
+                    <Button size="sm" onClick={() => void accept(invite.token)}>
                       Accept
                     </Button>
-                    <Button size="sm" variant="outline" className="rounded-md" onClick={() => void decline(invite.token)}>
+                    <Button size="sm" variant="ghost" onClick={() => void decline(invite.token)}>
                       Decline
                     </Button>
                   </div>
-                </li>
+                </div>
               ))}
-            </ul>
+            </div>
           </section>
         ) : null}
 
         <section className="mt-10">
-          <h2 className="text-sm font-medium text-foreground">Your projects</h2>
+          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Your projects</h2>
 
           {deepDives.length === 0 ? (
-            <div className="surface-panel mt-4 rounded-lg p-8 text-center">
-              <p className="text-foreground">No projects yet.</p>
-              <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-                Create one to get a first thread and start chatting with the agent.
+            <div className="mt-6 flex flex-col items-center rounded-xl border border-dashed border-border/50 px-8 py-14 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                <Plus className="h-5 w-5 text-primary" />
+              </div>
+              <p className="mt-4 text-sm font-medium text-foreground">No projects yet</p>
+              <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+                Create your first project to start chatting with AI models.
               </p>
-              <Button onClick={onNew} className="mt-6 rounded-md">
+              <button
+                onClick={onNew}
+                className="btn-gradient mt-6 rounded-xl px-5 py-2.5 text-sm font-medium gradient-glow"
+              >
                 Create project
-              </Button>
+              </button>
             </div>
           ) : (
-            <ul className="mt-4 divide-y divide-border rounded-lg border border-border bg-card">
+            <div className="mt-4 space-y-2">
               {deepDives.map((dive) => {
                 const lastThread = dive.threads.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0];
                 const preview = lastThread ? lastMessagePreview(lastThread.messages) : "No messages yet";
@@ -224,52 +233,56 @@ export default function DeepDives() {
                 const canDelete = dive.myRole === "owner";
 
                 return (
-                  <li key={dive.id} className="flex items-stretch gap-0">
+                  <div
+                    key={dive.id}
+                    className="group flex items-stretch rounded-xl border border-border/40 bg-card transition-colors hover:border-border/80"
+                  >
                     <button
                       type="button"
                       onClick={() => navigate(`/dive/${dive.id}`)}
-                      className="min-w-0 flex-1 px-4 py-4 text-left transition-colors hover:bg-muted/50"
+                      className="min-w-0 flex-1 px-5 py-4 text-left"
                     >
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1">
-                          <Clock3 className="h-3.5 w-3.5" />
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
+                          {dive.providers.map((provider) => (
+                            <span
+                              key={provider}
+                              className="h-2 w-2 rounded-full"
+                              title={AI_MODELS[provider].name}
+                              style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                            />
+                          ))}
+                        </div>
+                        <span className="text-xs text-muted-foreground">·</span>
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <Clock3 className="h-3 w-3" />
                           {formatRelative(dive.updatedAt)}
                         </span>
-                        <span>·</span>
-                        <span>
+                        <span className="text-xs text-muted-foreground">·</span>
+                        <span className="text-xs text-muted-foreground">
                           {dive.threads.length} thread{dive.threads.length === 1 ? "" : "s"}
                         </span>
                       </div>
-                      <h3 className="mt-1 truncate text-lg font-medium text-foreground">{dive.title}</h3>
+                      <h3 className="mt-2 truncate text-base font-medium text-foreground">{dive.title}</h3>
                       <p className="mt-1 truncate text-sm text-muted-foreground">{preview}</p>
-                      <div className="mt-2 flex items-center gap-1.5">
-                        {dive.providers.map((provider) => (
-                          <span
-                            key={provider}
-                            className="h-2 w-2 rounded-full"
-                            title={AI_MODELS[provider].name}
-                            style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
-                          />
-                        ))}
-                      </div>
                     </button>
 
                     {canRename || canDelete ? (
-                      <div className="flex shrink-0 items-center border-l border-border pr-2">
+                      <div className="flex shrink-0 items-center pr-3 opacity-0 transition-opacity group-hover:opacity-100">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon"
-                              className="h-10 w-10 rounded-none text-muted-foreground hover:text-foreground"
+                              className="h-8 w-8 text-muted-foreground"
                               aria-label="Project actions"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <MoreHorizontal className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuContent align="end" className="w-40">
                             {canRename ? (
                               <DropdownMenuItem
                                 onClick={(e) => {
@@ -298,21 +311,21 @@ export default function DeepDives() {
                         </DropdownMenu>
                       </div>
                     ) : null}
-                  </li>
+                  </div>
                 );
               })}
-            </ul>
+            </div>
           )}
         </section>
       </main>
 
       <Dialog open={open} onOpenChange={onClose}>
-        <DialogContent className="border-border bg-background sm:max-w-md">
+        <DialogContent className="border-border/50 bg-card sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>New project</DialogTitle>
+            <DialogTitle className="font-display text-xl">New project</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="space-y-2">
               <label htmlFor="new-project-name" className="text-sm font-medium text-foreground">
                 Name
@@ -322,26 +335,25 @@ export default function DeepDives() {
                 value={projectTitle}
                 onChange={(event) => setProjectTitle(event.target.value)}
                 placeholder="e.g. Q1 research"
-                className="rounded-md"
               />
             </div>
 
             <div className="space-y-2">
               <div className="text-sm font-medium text-foreground">Models</div>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {availableProviders.map((provider) => {
                   const model = AI_MODELS[provider];
                   const checked = selectedProviders.includes(provider);
                   return (
                     <label
                       key={provider}
-                      className="flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
+                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-border/40 px-3 py-2.5 transition-colors hover:bg-accent/50"
                     >
                       <Checkbox checked={checked} onCheckedChange={() => toggleProvider(provider)} />
                       <div
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-semibold"
                         style={{
-                          backgroundColor: `hsl(var(--${model.color}) / 0.14)`,
+                          backgroundColor: `hsl(var(--${model.color}) / 0.12)`,
                           color: `hsl(var(--${model.color}))`,
                         }}
                       >
@@ -359,10 +371,10 @@ export default function DeepDives() {
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => onClose(false)} className="rounded-md">
+            <Button variant="ghost" onClick={() => onClose(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void createProject()} disabled={selectedProviders.length === 0 || creating} className="rounded-md">
+            <Button onClick={() => void createProject()} disabled={selectedProviders.length === 0 || creating}>
               Create
             </Button>
           </DialogFooter>
@@ -380,16 +392,15 @@ export default function DeepDives() {
           }
         }}
       >
-        <DialogContent className="border-border bg-background sm:max-w-md">
+        <DialogContent className="border-border/50 bg-card sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Rename project</DialogTitle>
+            <DialogTitle className="font-display text-xl">Rename project</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Input
               value={renameTitle}
               onChange={(e) => setRenameTitle(e.target.value)}
               placeholder="Project name"
-              className="rounded-md"
               onKeyDown={(e) => {
                 if (e.key === "Enter") void submitRename();
               }}
@@ -397,10 +408,10 @@ export default function DeepDives() {
             {renameError ? <p className="text-sm text-destructive">{renameError}</p> : null}
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" className="rounded-md" onClick={() => setRenameOpen(false)} disabled={savingRename}>
+            <Button variant="ghost" onClick={() => setRenameOpen(false)} disabled={savingRename}>
               Cancel
             </Button>
-            <Button className="rounded-md" onClick={() => void submitRename()} disabled={savingRename || !renameTitle.trim()}>
+            <Button onClick={() => void submitRename()} disabled={savingRename || !renameTitle.trim()}>
               Save
             </Button>
           </DialogFooter>
@@ -416,7 +427,7 @@ export default function DeepDives() {
           }
         }}
       >
-        <AlertDialogContent className="border-border bg-background">
+        <AlertDialogContent className="border-border/50 bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete project?</AlertDialogTitle>
             <AlertDialogDescription>
