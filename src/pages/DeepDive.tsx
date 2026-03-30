@@ -596,7 +596,7 @@ export default function DeepDive() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium text-foreground">{deepDive.title}</span>
-                  <span className="shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <span className="shrink-0 rounded-md bg-gradient-to-r from-[hsl(var(--gradient-from)/0.1)] to-[hsl(var(--gradient-via)/0.06)] border border-[hsl(var(--gradient-from)/0.15)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary/80">
                     {activeType.label}
                   </span>
                 </div>
@@ -606,7 +606,7 @@ export default function DeepDive() {
                 {deepDive.providers.map((provider) => (
                   <span
                     key={provider}
-                    className="h-2 w-2 rounded-full"
+                    className="h-2.5 w-2.5 rounded-full ring-2 ring-background"
                     style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
                   />
                 ))}
@@ -694,46 +694,45 @@ export default function DeepDive() {
         {/* Threads sidebar */}
         <aside
           className={cn(
-            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/40 bg-card/50 transition-[width,border-color] duration-200 ease-out",
+            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/30 transition-[width,border-color] duration-200 ease-out",
             threadsOpen ? "border-r" : "border-transparent",
           )}
           style={{ width: threadsOpen ? "min(272px, 90vw)" : 0 }}
         >
-          <div className="flex min-h-0 w-[272px] min-w-[272px] flex-1 flex-col px-3 pb-3 pt-3">
-            <div className="flex items-center justify-between px-1">
-              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Threads</p>
-              <span className="text-xs tabular-nums text-muted-foreground">{threadCount}</span>
-            </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={newThread}
-              className="mt-3 w-full justify-start gap-2 border-border/40 text-xs"
-              disabled={creatingThread || !canEdit}
-            >
-              <MessageSquareText className="h-3.5 w-3.5" />
-              New thread
-            </Button>
-
-            <div className="mt-2 flex items-center gap-2 rounded-lg bg-accent/40 px-3 py-2">
-              <div className="flex items-center gap-1">
-                {deepDive.providers.map((provider) => (
-                  <span
-                    key={provider}
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
-                  />
-                ))}
+          <div className="flex min-h-0 w-[272px] min-w-[272px] flex-1 flex-col">
+            {/* Sidebar gradient top */}
+            <div className="sidebar-gradient-top px-3 pb-1 pt-3">
+              <div className="flex items-center justify-between px-1">
+                <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Threads</p>
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1.5 text-[10px] font-medium tabular-nums text-primary">{threadCount}</span>
               </div>
-              <span className="text-[11px] capitalize text-muted-foreground">{myRole}</span>
+
+              <button
+                onClick={newThread}
+                disabled={creatingThread || !canEdit}
+                className="mt-3 flex w-full items-center gap-2 rounded-xl border border-dashed border-border/50 px-3 py-2 text-xs text-muted-foreground transition-all hover:border-primary/30 hover:text-foreground hover:bg-primary/[0.03] disabled:opacity-50"
+              >
+                <MessageSquareText className="h-3.5 w-3.5" />
+                New thread
+              </button>
+
+              <div className="mt-2 flex items-center gap-2 rounded-lg px-2 py-1.5">
+                <div className="flex items-center gap-1">
+                  {deepDive.providers.map((provider) => (
+                    <span key={provider} className="h-2 w-2 rounded-full" style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }} />
+                  ))}
+                </div>
+                <span className="text-[11px] capitalize text-muted-foreground">{myRole}</span>
+              </div>
             </div>
 
-            <div className="mt-3 min-h-0 flex-1 overflow-y-auto scrollbar-thin pr-1">
+            <div className="mx-3 my-1 gradient-line opacity-20" />
+
+            <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-3 pb-3 pr-2">
             {Object.entries(threadsByGroup).map(([label, threads]) => (
               <div key={label} className="mb-4">
-                <p className="px-1 text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
-                <div className="mt-1.5 space-y-1">
+                <p className="px-1 pt-2 text-[10px] uppercase tracking-widest text-muted-foreground/70">{label}</p>
+                <div className="mt-1.5 space-y-0.5">
                   {threads.map(thread => {
                     const isActive = thread.id === activeThread?.id;
                     const meta = threadTypeCopy(thread.type);
@@ -741,12 +740,13 @@ export default function DeepDive() {
                       <div
                         key={thread.id}
                         className={cn(
-                          "rounded-lg border px-3 py-2.5 transition-colors",
+                          "relative rounded-xl px-3 py-2.5 transition-all duration-200",
                           isActive
-                            ? "border-border/60 bg-accent"
-                            : "border-transparent hover:bg-accent/50"
+                            ? "bg-gradient-to-r from-[hsl(var(--gradient-from)/0.08)] to-transparent"
+                            : "hover:bg-accent/40"
                         )}
                       >
+                        {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-gradient-to-b from-[hsl(var(--gradient-from))] to-[hsl(var(--gradient-via))]" />}
                         <div className="flex items-start gap-1.5">
                           <button
                             type="button"
@@ -798,7 +798,7 @@ export default function DeepDive() {
         </aside>
 
         {/* Main content */}
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch overflow-hidden bg-background">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch overflow-hidden gradient-bg-subtle">
           <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-none flex-1 flex-col">
             {!activeThread ? null : activeThread.type === "chat" ? (
               <ThreadChatPanel
@@ -1067,7 +1067,7 @@ export default function DeepDive() {
         {/* Notes sidebar */}
         <aside
           className={cn(
-            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/40 bg-card/50 transition-[width,border-color] duration-200 ease-out",
+            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/30 transition-[width,border-color] duration-200 ease-out",
             notesOpen ? "border-l" : "border-transparent",
           )}
           style={{ width: notesOpen ? "min(280px, 90vw)" : 0 }}
@@ -1075,7 +1075,7 @@ export default function DeepDive() {
           <div className="flex min-h-0 w-[280px] min-w-[280px] flex-1 flex-col px-3 pb-3 pt-3">
             <div className="flex items-center justify-between px-1">
               <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Team notes</p>
-              <span className="text-[11px] capitalize text-muted-foreground">{myRole}</span>
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] capitalize text-primary">{myRole}</span>
             </div>
 
             <div className="mt-3 min-h-0 flex-1 overflow-y-auto scrollbar-thin pr-1">
@@ -1115,7 +1115,8 @@ export default function DeepDive() {
             </div>
           </div>
 
-          <div className="mt-auto shrink-0 border-t border-border/40 pt-3">
+          <div className="relative mt-auto shrink-0 pt-3">
+            <div className="absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-border/50 to-transparent" />
             <ChatInput
               onSend={sendHumanMessage}
               placeholder={canComment ? "Add a note..." : "View-only"}
@@ -1123,6 +1124,7 @@ export default function DeepDive() {
               autoFocus={false}
               value={humanDraft}
               onChange={setHumanDraft}
+              compact
               reply={
                 humanReplyTo
                   ? {
