@@ -44,7 +44,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -95,20 +94,20 @@ function renderMarkdown(content: string) {
       components={{
         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
         a: ({ children, href }) => (
-          <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+          <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-4 hover:text-primary/80">
             {children}
           </a>
         ),
         ul: ({ children }) => <ul className="mb-2 list-disc pl-6 last:mb-0">{children}</ul>,
         ol: ({ children }) => <ol className="mb-2 list-decimal pl-6 last:mb-0">{children}</ol>,
         li: ({ children }) => <li className="mb-1 last:mb-0">{children}</li>,
-        blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-border/70 pl-3 italic">{children}</blockquote>,
+        blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-primary/30 pl-3 italic text-muted-foreground">{children}</blockquote>,
         code: ({ children, className }) => (
-          <code className={`rounded bg-black/5 px-1 py-0.5 font-mono text-[0.9em] dark:bg-white/[0.06] ${className ?? ""}`}>
+          <code className={`rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.9em] ${className ?? ""}`}>
             {children}
           </code>
         ),
-        pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[18px] bg-black/5 p-3 dark:bg-white/[0.06]">{children}</pre>,
+        pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-xl bg-muted p-3">{children}</pre>,
       }}
     >
       {content}
@@ -117,9 +116,9 @@ function renderMarkdown(content: string) {
 }
 
 function threadTypeCopy(type: DeepDiveThreadRecord["type"]) {
-  if (type === "vote") return { label: "Vote", detail: "Multiple models propose options, then score the strongest direction." };
-  if (type === "teamwork") return { label: "Debate", detail: "Models challenge, refine, and synthesize ideas in sequence." };
-  return { label: "Thread", detail: "A direct conversation with shared project context and model routing." };
+  if (type === "vote") return { label: "Vote", detail: "Models propose options, then score the strongest direction." };
+  if (type === "teamwork") return { label: "Debate", detail: "Models challenge, refine, and synthesize ideas." };
+  return { label: "Thread", detail: "Direct conversation with shared context." };
 }
 
 function formatDateTime(ts: number) {
@@ -254,12 +253,10 @@ export default function DeepDive() {
 
   if (isLoading) {
     return (
-      <div className="app-canvas min-h-screen bg-background">
-        <AppHeader />
-        <div className="mx-auto flex min-h-[70vh] max-w-4xl items-center justify-center px-6">
-          <div className="surface-panel rounded-[28px] px-8 py-10 text-center text-muted-foreground">
-            Loading project...
-          </div>
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3 animate-fade-up">
+          <BrandLogo gradient showLabel={false} />
+          <p className="text-sm text-muted-foreground animate-pulse">Loading project...</p>
         </div>
       </div>
     );
@@ -267,16 +264,16 @@ export default function DeepDive() {
 
   if (!deepDive) {
     return (
-      <div className="app-canvas min-h-screen bg-background">
+      <div className="min-h-screen bg-background">
         <AppHeader />
-        <div className="mx-auto flex min-h-[70vh] max-w-4xl items-center justify-center px-6">
-          <div className="surface-panel rounded-[28px] px-8 py-10 text-center">
-            <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Projects</div>
-            <div className="mt-4 text-3xl text-foreground">Project not found</div>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              This project does not exist in the database yet.
+        <div className="mx-auto flex min-h-[70vh] max-w-2xl items-center justify-center px-6">
+          <div className="text-center animate-fade-up">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">Projects</p>
+            <h1 className="mt-3 text-2xl font-display text-foreground">Project not found</h1>
+            <p className="mt-3 text-sm text-muted-foreground">
+              This project does not exist or you don't have access.
             </p>
-            <Link to="/" className="mt-6 inline-flex text-sm font-medium text-foreground underline underline-offset-4">
+            <Link to="/" className="mt-6 inline-flex text-sm font-medium text-primary hover:text-primary/80">
               Back to projects
             </Link>
           </div>
@@ -339,9 +336,9 @@ export default function DeepDive() {
     const el = document.getElementById(`thread-msg-${messageId}`);
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("ring-2", "ring-primary/40", "rounded-[26px]");
+    el.classList.add("ring-1", "ring-primary/30", "rounded-xl");
     window.setTimeout(() => {
-      el.classList.remove("ring-2", "ring-primary/40", "rounded-[26px]");
+      el.classList.remove("ring-1", "ring-primary/30", "rounded-xl");
     }, 900);
   };
 
@@ -572,45 +569,40 @@ export default function DeepDive() {
   const threadCount = deepDive.threads.length;
 
   return (
-    <div className="app-canvas flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-background">
+    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-background">
       <AppHeader
         workspace={{
           leading: (
-            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 shrink-0 rounded-full"
-                  onClick={() => navigate("/")}
-                  aria-label="All projects"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => navigate("/")}
-                  className="shrink-0 rounded-lg p-0.5 transition-colors hover:bg-muted/70"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground hover:bg-accent"
+                  aria-label="All projects"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate("/")}
+                  className="transition-opacity hover:opacity-70"
                   aria-label="Home"
                 >
                   <BrandLogo compact showLabel={false} className="gap-0" />
                 </button>
-                <Separator orientation="vertical" className="hidden h-6 sm:block" />
               </div>
-              <div className="min-w-0 flex-1 text-left">
-                <div className="truncate text-sm font-medium leading-tight text-foreground">{deepDive.title}</div>
-                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="shrink-0 rounded-md border border-border/50 bg-background/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground dark:bg-background/25">
+              <div className="hidden h-5 w-px bg-border/50 sm:block" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium text-foreground">{deepDive.title}</span>
+                  <span className="shrink-0 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {activeType.label}
                   </span>
-                  <span className="min-w-0 truncate text-xs font-semibold text-foreground sm:text-sm">
-                    {activeThread?.title ?? "Thread"}
-                  </span>
                 </div>
-                <p className="mt-0.5 line-clamp-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">{activeType.detail}</p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{activeThread?.title ?? "Thread"}</p>
               </div>
-              <div className="hidden shrink-0 items-center gap-1.5 lg:flex" title="Models in this project">
+              <div className="hidden shrink-0 items-center gap-1 lg:flex">
                 {deepDive.providers.map((provider) => (
                   <span
                     key={provider}
@@ -619,25 +611,21 @@ export default function DeepDive() {
                   />
                 ))}
               </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                <Badge
-                  variant="secondary"
-                  className="inline-flex max-w-[9rem] shrink-0 truncate rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-normal tabular-nums text-foreground sm:max-w-none"
-                >
-                  {contextMessages.length} in context
-                </Badge>
-                {activeThread?.type !== "chat" ? (
-                  <Badge variant="outline" className="hidden rounded-md px-2 py-0.5 text-[10px] font-normal sm:inline-flex">
-                    Branched
-                  </Badge>
-                ) : null}
+              <div className="flex shrink-0 items-center gap-1">
+                <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
+                  {contextMessages.length} msgs
+                </span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="icon" className="h-8 w-8 rounded-full border-border/70" aria-label="Project menu">
+                    <button
+                      type="button"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground hover:bg-accent"
+                      aria-label="Project menu"
+                    >
                       <MoreHorizontal className="h-4 w-4" />
-                    </Button>
+                    </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuContent align="end" className="w-48">
                     <DropdownMenuItem onClick={() => setShareOpen(true)}>
                       <Users2 className="mr-2 h-4 w-4" />
                       Share project
@@ -675,48 +663,45 @@ export default function DeepDive() {
           ),
           beforeSystemControls: (
             <>
-              <Button
+              <button
                 type="button"
-                variant={threadsOpen ? "secondary" : "ghost"}
-                size="icon"
-                className="h-9 w-9 rounded-full"
-                aria-pressed={threadsOpen}
-                aria-expanded={threadsOpen}
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
+                  threadsOpen ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                )}
                 aria-label={threadsOpen ? "Hide threads" : "Show threads"}
-                title="Toggle threads (⌘. or Ctrl+.)"
                 onClick={() => setThreadsOpen((o) => !o)}
               >
                 <PanelLeft className="h-4 w-4" />
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
-                variant={notesOpen ? "secondary" : "ghost"}
-                size="icon"
-                className="h-9 w-9 rounded-full"
-                aria-pressed={notesOpen}
-                aria-expanded={notesOpen}
-                aria-label={notesOpen ? "Hide team notes" : "Show team notes"}
-                title="Toggle team notes (⌘B or Ctrl+B)"
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
+                  notesOpen ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                )}
+                aria-label={notesOpen ? "Hide notes" : "Show notes"}
                 onClick={() => setNotesOpen((o) => !o)}
               >
                 {notesOpen ? <PanelRightClose className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
-              </Button>
+              </button>
             </>
           ),
         }}
       />
 
       <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {/* Threads sidebar */}
         <aside
           className={cn(
-            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/60 bg-muted/40 transition-[width,border-color] duration-200 ease-out dark:bg-muted/25",
+            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/40 bg-card/50 transition-[width,border-color] duration-200 ease-out",
             threadsOpen ? "border-r" : "border-transparent",
           )}
-          style={{ width: threadsOpen ? "min(288px, 92vw)" : 0 }}
+          style={{ width: threadsOpen ? "min(272px, 90vw)" : 0 }}
         >
-          <div className="flex min-h-0 w-[288px] min-w-[288px] flex-1 flex-col px-3 pb-3 pt-3">
-            <div className="flex items-center justify-between gap-2 px-1">
-              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Threads</div>
+          <div className="flex min-h-0 w-[272px] min-w-[272px] flex-1 flex-col px-3 pb-3 pt-3">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Threads</p>
               <span className="text-xs tabular-nums text-muted-foreground">{threadCount}</span>
             </div>
 
@@ -724,19 +709,19 @@ export default function DeepDive() {
               variant="outline"
               size="sm"
               onClick={newThread}
-              className="mt-3 rounded-full border-border/80 bg-white/70 text-xs dark:bg-white/[0.06]"
+              className="mt-3 w-full justify-start gap-2 border-border/40 text-xs"
               disabled={creatingThread || !canEdit}
             >
               <MessageSquareText className="h-3.5 w-3.5" />
               New thread
             </Button>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-white/60 px-3 py-2 dark:bg-white/[0.04]">
-              <div className="flex items-center gap-1.5" title="Models in this project">
+            <div className="mt-2 flex items-center gap-2 rounded-lg bg-accent/40 px-3 py-2">
+              <div className="flex items-center gap-1">
                 {deepDive.providers.map((provider) => (
                   <span
                     key={provider}
-                    className="h-2 w-2 rounded-full"
+                    className="h-1.5 w-1.5 rounded-full"
                     style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
                   />
                 ))}
@@ -744,51 +729,48 @@ export default function DeepDive() {
               <span className="text-[11px] capitalize text-muted-foreground">{myRole}</span>
             </div>
 
-            <div className="mt-4 min-h-0 flex-1 overflow-y-auto scrollbar-thin pr-1">
+            <div className="mt-3 min-h-0 flex-1 overflow-y-auto scrollbar-thin pr-1">
             {Object.entries(threadsByGroup).map(([label, threads]) => (
-              <div key={label} className="mb-5">
-                <div className="px-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
-                <div className="mt-2 space-y-2">
+              <div key={label} className="mb-4">
+                <p className="px-1 text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
+                <div className="mt-1.5 space-y-1">
                   {threads.map(thread => {
                     const isActive = thread.id === activeThread?.id;
                     const meta = threadTypeCopy(thread.type);
                     return (
                       <div
                         key={thread.id}
-                        className={`rounded-2xl border px-3 py-3 transition ${
+                        className={cn(
+                          "rounded-lg border px-3 py-2.5 transition-colors",
                           isActive
-                            ? "border-border bg-white shadow-sm dark:bg-white/[0.07] dark:shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]"
-                            : "border-transparent bg-transparent hover:border-border/70 hover:bg-white/50 dark:hover:bg-white/[0.04]"
-                        }`}
+                            ? "border-border/60 bg-accent"
+                            : "border-transparent hover:bg-accent/50"
+                        )}
                       >
-                        <div className="flex items-start gap-2">
+                        <div className="flex items-start gap-1.5">
                           <button
                             type="button"
                             onClick={() => setActiveThreadId(thread.id)}
                             className="min-w-0 flex-1 text-left"
                           >
-                            <div className="text-sm font-medium text-foreground">{thread.title}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">{meta.label}</div>
-                            <div className="mt-3 text-xs text-muted-foreground">
-                              Updated {formatDateTime(thread.updatedAt)}
-                            </div>
+                            <p className="truncate text-sm font-medium text-foreground">{thread.title}</p>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">{meta.label} · {formatDateTime(thread.updatedAt)}</p>
                           </button>
                           {canEdit ? (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 shrink-0 rounded-full text-muted-foreground"
+                                <button
+                                  type="button"
+                                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 [div:hover>&]:opacity-100"
                                   aria-label="Thread actions"
                                 >
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuContent align="end" className="w-40">
                                 <DropdownMenuItem onClick={() => openRenameThread(thread)}>
                                   <PencilLine className="mr-2 h-4 w-4" />
-                                  Rename thread
+                                  Rename
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => {
@@ -799,7 +781,7 @@ export default function DeepDive() {
                                   className="text-destructive focus:text-destructive"
                                 >
                                   <Trash2 className="mr-2 h-4 w-4" />
-                                  Delete thread
+                                  Delete
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -815,8 +797,9 @@ export default function DeepDive() {
           </div>
         </aside>
 
+        {/* Main content */}
         <section className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch overflow-hidden bg-background">
-          <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-[min(100%,72rem)] flex-1 flex-col">
+          <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-none flex-1 flex-col">
             {!activeThread ? null : activeThread.type === "chat" ? (
               <ThreadChatPanel
                 key={activeThread.id}
@@ -836,17 +819,18 @@ export default function DeepDive() {
                 onCancelReply={() => setThreadReplyTo(null)}
               />
             ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-4 py-4 sm:px-5">
+              <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-4 py-6 sm:px-6">
+                <div className="mx-auto max-w-3xl">
                 {activeThread.type === "vote" && (
                   <div className="space-y-6">
                     {contextMessages.length > 0 && (
-                      <section className="rounded-[24px] border border-border/70 bg-white/55 p-4 dark:bg-white/[0.04]">
-                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                      <section className="rounded-xl border border-border/40 p-4">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Scale className="h-3.5 w-3.5" />
-                          Context snapshot
+                          <span className="uppercase tracking-widest">Context snapshot</span>
                         </div>
                         <div className="mt-4 space-y-3">
-                          {contextMessages.map((message, idx) => {
+                          {contextMessages.map((message) => {
                             const provider = message.metadata?.provider as AIProvider | undefined;
                             const model = provider ? AI_MODELS[provider] : null;
                             const text = getMessageText(message);
@@ -855,12 +839,15 @@ export default function DeepDive() {
                               <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                                 <div className="max-w-[88%]">
                                   {!isUser && model && (
-                                    <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
-                                      <span>{model.name}</span>
+                                    <div className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
+                                      <span className="font-medium">{model.name}</span>
                                     </div>
                                   )}
-                                  <div className={`rounded-[22px] px-4 py-3 text-sm leading-7 shadow-sm ${isUser ? "bg-[hsl(var(--user-bubble))]" : "border border-border/70 bg-white/78 dark:bg-white/[0.05]"}`}>
+                                  <div className={cn(
+                                    "rounded-xl px-4 py-3 text-sm leading-relaxed",
+                                    isUser ? "bg-[hsl(var(--user-bubble))]" : "bg-accent/50"
+                                  )}>
                                     {renderMarkdown(text)}
                                   </div>
                                 </div>
@@ -871,9 +858,9 @@ export default function DeepDive() {
                       </section>
                     )}
 
-                    <section className="space-y-4">
+                    <section className="space-y-3">
                       {voteResults.length === 0 && (
-                        <div className="rounded-[24px] border border-border/70 bg-white/60 px-6 py-8 text-center text-sm text-muted-foreground dark:bg-white/[0.04]">
+                        <div className="rounded-xl border border-dashed border-border/50 px-6 py-10 text-center text-sm text-muted-foreground">
                           {runningVote ? "Gathering proposals and votes..." : "No vote results yet."}
                         </div>
                       )}
@@ -894,61 +881,60 @@ export default function DeepDive() {
                         return (
                           <div
                             key={result.provider}
-                            className={`group relative rounded-[24px] border p-5 ${
-                              isWinner ? "border-primary/30 bg-card shadow-sm" : "border-border/70 bg-muted/40 dark:bg-muted/20"
-                            }`}
+                            className={cn(
+                              "group relative rounded-xl border p-5",
+                              isWinner ? "border-primary/30 bg-primary/5" : "border-border/40 bg-card"
+                            )}
                           >
                             <Popover>
                               <PopoverTrigger asChild>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="absolute right-3 top-3 h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+                                  className="absolute right-3 top-3 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
                                   aria-label="Message actions"
                                 >
-                                  <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                                  <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
                                 </Button>
                               </PopoverTrigger>
-                              <PopoverContent className="w-52 p-1" align="end">
-                                <Button variant="ghost" size="sm" onClick={() => askOtherAI(seed, result.provider)} className="w-full justify-start">
+                              <PopoverContent className="w-48 p-1" align="end">
+                                <Button variant="ghost" size="sm" onClick={() => askOtherAI(seed, result.provider)} className="w-full justify-start text-xs">
                                   Ask {AI_MODELS[defaultOther(result.provider)].name}
                                 </Button>
-                                <Button variant="ghost" size="sm" onClick={() => callVote(seed)} className="w-full justify-start">
+                                <Button variant="ghost" size="sm" onClick={() => callVote(seed)} className="w-full justify-start text-xs">
                                   Call a vote
                                 </Button>
-                                <Button variant="ghost" size="sm" onClick={() => startDebate(seed)} className="w-full justify-start">
+                                <Button variant="ghost" size="sm" onClick={() => startDebate(seed)} className="w-full justify-start text-xs">
                                   Start a debate
                                 </Button>
                               </PopoverContent>
                             </Popover>
 
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div className="flex items-center gap-3">
-                                <div
-                                  className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold"
-                                  style={{ backgroundColor: `hsl(var(--${model.color}) / 0.14)`, color: `hsl(var(--${model.color}))` }}
-                                >
-                                  {model.name.slice(0, 1)}
-                                </div>
-                                <div>
-                                  <div className="text-sm font-medium text-foreground">{model.name}</div>
-                                  <div className="text-xs text-muted-foreground">{result.votes.length} votes</div>
-                                </div>
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="flex h-9 w-9 items-center justify-center rounded-lg text-xs font-semibold"
+                                style={{ backgroundColor: `hsl(var(--${model.color}) / 0.12)`, color: `hsl(var(--${model.color}))` }}
+                              >
+                                {model.name.slice(0, 1)}
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-foreground">{model.name}</p>
+                                <p className="text-xs text-muted-foreground">{result.votes.length} votes</p>
                               </div>
                               {isWinner && (
-                                <Badge className="rounded-full bg-primary px-3 py-1 text-primary-foreground">Leading</Badge>
+                                <Badge className="bg-primary/15 text-primary border-0 text-xs">Leading</Badge>
                               )}
                             </div>
 
-                            <div className="mt-4 text-sm leading-7 text-foreground">{result.response}</div>
+                            <div className="mt-3 text-sm leading-relaxed text-foreground">{result.response}</div>
 
                             {result.votes.length > 0 && (
-                              <div className="mt-4 flex flex-wrap gap-2">
+                              <div className="mt-3 flex flex-wrap gap-1.5">
                                 {result.votes.map(voter => (
                                   <Badge
                                     key={voter}
                                     variant="secondary"
-                                    className="rounded-full border border-border/70 bg-white/75 px-3 py-1 dark:bg-white/[0.06]"
+                                    className="border-0 bg-accent text-xs"
                                     style={{ color: `hsl(var(--${AI_MODELS[voter].color}))` }}
                                   >
                                     {AI_MODELS[voter].name}
@@ -958,7 +944,7 @@ export default function DeepDive() {
                             )}
 
                             {result.reasoning && (
-                              <div className="mt-4 text-xs italic leading-6 text-muted-foreground">{result.reasoning}</div>
+                              <p className="mt-3 text-xs italic text-muted-foreground">{result.reasoning}</p>
                             )}
                           </div>
                         );
@@ -970,10 +956,10 @@ export default function DeepDive() {
                 {activeThread.type === "teamwork" && (
                   <div className="space-y-6">
                     {contextMessages.length > 0 && (
-                      <section className="rounded-[24px] border border-border/70 bg-white/55 p-4 dark:bg-white/[0.04]">
-                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                      <section className="rounded-xl border border-border/40 p-4">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Users2 className="h-3.5 w-3.5" />
-                          Context snapshot
+                          <span className="uppercase tracking-widest">Context snapshot</span>
                         </div>
                         <div className="mt-4 space-y-3">
                           {contextMessages.map(message => {
@@ -985,12 +971,15 @@ export default function DeepDive() {
                               <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
                                 <div className="max-w-[88%]">
                                   {!isUser && model && (
-                                    <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
-                                      <span>{model.name}</span>
+                                    <div className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
+                                      <span className="font-medium">{model.name}</span>
                                     </div>
                                   )}
-                                  <div className={`rounded-[22px] px-4 py-3 text-sm leading-7 shadow-sm ${isUser ? "bg-[hsl(var(--user-bubble))]" : "border border-border/70 bg-white/78 dark:bg-white/[0.05]"}`}>
+                                  <div className={cn(
+                                    "rounded-xl px-4 py-3 text-sm leading-relaxed",
+                                    isUser ? "bg-[hsl(var(--user-bubble))]" : "bg-accent/50"
+                                  )}>
                                     {renderMarkdown(text)}
                                   </div>
                                 </div>
@@ -1001,9 +990,9 @@ export default function DeepDive() {
                       </section>
                     )}
 
-                    <section className="space-y-4">
+                    <section className="space-y-3">
                       {teamworkMessages.length === 0 && (
-                        <div className="rounded-[24px] border border-border/70 bg-white/60 px-6 py-8 text-center text-sm text-muted-foreground dark:bg-white/[0.04]">
+                        <div className="rounded-xl border border-dashed border-border/50 px-6 py-10 text-center text-sm text-muted-foreground">
                           {runningDebate ? "The debate is underway..." : "No debate messages yet."}
                         </div>
                       )}
@@ -1022,26 +1011,26 @@ export default function DeepDive() {
                         ];
 
                         return (
-                          <div key={message.id} className="group relative rounded-[24px] border border-border/70 bg-white/68 p-5 dark:bg-white/[0.05]">
+                          <div key={message.id} className="group relative rounded-xl border border-border/40 bg-card p-5">
                             <Popover>
                               <PopoverTrigger asChild>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="absolute right-3 top-3 h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+                                  className="absolute right-3 top-3 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
                                   aria-label="Message actions"
                                 >
-                                  <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                                  <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
                                 </Button>
                               </PopoverTrigger>
-                              <PopoverContent className="w-52 p-1" align="end">
-                                <Button variant="ghost" size="sm" onClick={() => askOtherAI(seed, message.from)} className="w-full justify-start">
+                              <PopoverContent className="w-48 p-1" align="end">
+                                <Button variant="ghost" size="sm" onClick={() => askOtherAI(seed, message.from)} className="w-full justify-start text-xs">
                                   Ask {AI_MODELS[defaultOther(message.from)].name}
                                 </Button>
-                                <Button variant="ghost" size="sm" onClick={() => callVote(seed)} className="w-full justify-start">
+                                <Button variant="ghost" size="sm" onClick={() => callVote(seed)} className="w-full justify-start text-xs">
                                   Call a vote
                                 </Button>
-                                <Button variant="ghost" size="sm" onClick={() => startDebate(seed)} className="w-full justify-start">
+                                <Button variant="ghost" size="sm" onClick={() => startDebate(seed)} className="w-full justify-start text-xs">
                                   Start a debate
                                 </Button>
                               </PopoverContent>
@@ -1049,20 +1038,18 @@ export default function DeepDive() {
 
                             <div className="flex items-center gap-3">
                               <div
-                                className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold"
-                                style={{ backgroundColor: `hsl(var(--${from.color}) / 0.14)`, color: `hsl(var(--${from.color}))` }}
+                                className="flex h-9 w-9 items-center justify-center rounded-lg text-xs font-semibold"
+                                style={{ backgroundColor: `hsl(var(--${from.color}) / 0.12)`, color: `hsl(var(--${from.color}))` }}
                               >
                                 {from.name.slice(0, 1)}
                               </div>
                               <div>
-                                <div className="text-sm font-medium text-foreground">{from.name}</div>
-                                <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                                  To {toLabel}
-                                </div>
+                                <p className="text-sm font-medium text-foreground">{from.name}</p>
+                                <p className="text-xs text-muted-foreground">To {toLabel}</p>
                               </div>
                             </div>
 
-                            <div className="mt-4 whitespace-pre-wrap break-words text-sm leading-7 text-foreground">
+                            <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
                               {message.content}
                             </div>
                           </div>
@@ -1071,69 +1058,67 @@ export default function DeepDive() {
                     </section>
                   </div>
                 )}
+                </div>
               </div>
             )}
           </div>
         </section>
 
+        {/* Notes sidebar */}
         <aside
           className={cn(
-            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/60 bg-muted/40 transition-[width,border-color] duration-200 ease-out dark:bg-muted/25",
+            "flex min-h-0 shrink-0 flex-col self-stretch overflow-hidden border-border/40 bg-card/50 transition-[width,border-color] duration-200 ease-out",
             notesOpen ? "border-l" : "border-transparent",
           )}
-          style={{ width: notesOpen ? "min(300px, 92vw)" : 0 }}
+          style={{ width: notesOpen ? "min(280px, 90vw)" : 0 }}
         >
-          <div className="flex min-h-0 w-[300px] min-w-[300px] flex-1 flex-col px-3 pb-3 pt-3">
-            <div className="flex items-start justify-between gap-2 px-1">
-              <div>
-                <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Team notes</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">People · {myRole}</div>
-              </div>
+          <div className="flex min-h-0 w-[280px] min-w-[280px] flex-1 flex-col px-3 pb-3 pt-3">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Team notes</p>
+              <span className="text-[11px] capitalize text-muted-foreground">{myRole}</span>
             </div>
 
             <div className="mt-3 min-h-0 flex-1 overflow-y-auto scrollbar-thin pr-1">
-            <div className="space-y-3 px-0.5">
+            <div className="space-y-2">
               {(humanMessages ?? []).map((message) => (
-                <div key={message.id} className="rounded-2xl border border-border/70 bg-white/70 px-3 py-3 text-sm dark:bg-white/[0.05]">
-                  <div className="flex items-center justify-between gap-3">
+                <div key={message.id} className="rounded-lg border border-border/40 bg-card p-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      <Avatar className="h-7 w-7">
+                      <Avatar className="h-6 w-6">
                         <AvatarImage src={message.author.image} />
-                        <AvatarFallback className="text-[10px]">
+                        <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
                           {initials((message.author.name || message.author.email || "Member").toString())}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-foreground">
-                          {(message.author.name || message.author.email || "Member").toString()}
-                        </div>
-                      </div>
+                      <span className="truncate text-xs font-medium text-foreground">
+                        {(message.author.name || message.author.email || "Member").toString()}
+                      </span>
                     </div>
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{formatDateTime(message.createdAt)}</div>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">{formatDateTime(message.createdAt)}</span>
                   </div>
 
                   {message.replyTo?.threadMessageId ? (
                     <button
                       type="button"
                       onClick={() => jumpToThreadMessage(message.replyTo!.threadMessageId)}
-                      className="mt-3 w-full rounded-[18px] border border-border/70 bg-white/60 px-3 py-2 text-left text-xs dark:bg-white/[0.03]"
+                      className="mt-2 w-full rounded-lg bg-accent/50 px-2.5 py-1.5 text-left text-xs"
                     >
-                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">In reply to</div>
-                      <div className="mt-1 truncate text-foreground">{message.replyTo.excerpt || "View message"}</div>
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground">In reply to</p>
+                      <p className="mt-0.5 truncate text-foreground">{message.replyTo.excerpt || "View message"}</p>
                     </button>
                   ) : null}
 
-                  <div className="mt-3 break-words text-foreground">{renderMarkdown(message.text)}</div>
+                  <div className="mt-2 break-words text-foreground">{renderMarkdown(message.text)}</div>
                 </div>
               ))}
               <div ref={humanEndRef} />
             </div>
           </div>
 
-          <div className="mt-auto shrink-0 border-t border-border/60 pt-3">
+          <div className="mt-auto shrink-0 border-t border-border/40 pt-3">
             <ChatInput
               onSend={sendHumanMessage}
-              placeholder={canComment ? "Add a note for the team..." : "View-only"}
+              placeholder={canComment ? "Add a note..." : "View-only"}
               disabled={sendingHumanChat || !canComment}
               autoFocus={false}
               value={humanDraft}
@@ -1153,22 +1138,23 @@ export default function DeepDive() {
         </aside>
       </main>
 
+      {/* Share Dialog */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="border-border bg-background sm:max-w-2xl">
+        <DialogContent className="border-border/50 bg-card sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Project access</DialogTitle>
+            <DialogTitle className="font-display text-xl">Project access</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-6">
-            <div className="rounded-[22px] border border-border/70 bg-white/70 p-4 dark:bg-white/[0.05]">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Invite people</div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_160px]">
+          <div className="space-y-5">
+            <div className="space-y-3 rounded-xl border border-border/40 p-4">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Invite people</p>
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   value={inviteEmailInput}
                   onChange={(e) => setInviteEmailInput(e.target.value)}
-                  placeholder="Gmail (or any email)"
-                  className="rounded-full bg-white/80 dark:bg-white/[0.05]"
+                  placeholder="Email address"
                   disabled={!canEdit}
+                  className="flex-1"
                 />
                 <Select
                   value={inviteRole}
@@ -1179,7 +1165,7 @@ export default function DeepDive() {
                   }}
                   disabled={!canEdit}
                 >
-                  <SelectTrigger className="rounded-full">
+                  <SelectTrigger className="w-[140px]">
                     <SelectValue placeholder="Role" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1189,136 +1175,112 @@ export default function DeepDive() {
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <Button onClick={createEmailInvite} className="rounded-full" disabled={!canEdit || inviteEmailInput.trim().length === 0}>
-                  Create email invite
+              <div className="flex gap-2">
+                <Button size="sm" onClick={createEmailInvite} disabled={!canEdit || inviteEmailInput.trim().length === 0}>
+                  Email invite
                 </Button>
-                <Button onClick={createLinkInvite} variant="outline" className="rounded-full" disabled={!canEdit}>
-                  Create link invite
+                <Button size="sm" variant="outline" onClick={createLinkInvite} disabled={!canEdit}>
+                  Link invite
                 </Button>
               </div>
-
-              {inviteError ? (
-                <div className="mt-3 rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                  {inviteError}
-                </div>
-              ) : null}
-
+              {inviteError ? <p className="text-sm text-destructive">{inviteError}</p> : null}
               {inviteToken ? (
-                <div className="mt-4 rounded-2xl border border-border/70 bg-white/70 px-4 py-3 dark:bg-white/[0.04]">
-                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Invite link</div>
-                  <div className="mt-2 break-all text-sm text-foreground">{inviteLink}</div>
-                  <div className="mt-3 flex gap-2">
-                    <Button variant="outline" size="sm" onClick={copyInvite} className="rounded-full">
-                      Copy link
-                    </Button>
-                  </div>
+                <div className="rounded-lg bg-accent/50 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Invite link</p>
+                  <p className="mt-1 break-all text-xs text-foreground">{inviteLink}</p>
+                  <Button variant="ghost" size="sm" onClick={copyInvite} className="mt-1 h-7 px-2 text-xs">
+                    Copy
+                  </Button>
                 </div>
               ) : null}
             </div>
 
-            <div className="rounded-[22px] border border-border/70 bg-white/70 p-4 dark:bg-white/[0.05]">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Members</div>
-              <div className="mt-4 space-y-2">
-                {(members ?? []).map((member) => (
-                  <div key={member.userId} className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-white/70 px-4 py-3 dark:bg-white/[0.04] sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">{member.name || member.email || member.userId}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{member.email || ""}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="rounded-full bg-white/75 dark:bg-white/[0.06]">{member.role}</Badge>
-                      {myRole === "owner" && member.role !== "owner" ? (
-                        <>
-                          <Select
-                            value={member.role}
-                            onValueChange={(value) => {
-                              if (value === "editor" || value === "commenter" || value === "viewer") {
-                                void updateRole(member.userId, value);
-                              }
-                            }}
-                          >
-                            <SelectTrigger className="h-9 w-[140px] rounded-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="editor">Editor</SelectItem>
-                              <SelectItem value="commenter">Commenter</SelectItem>
-                              <SelectItem value="viewer">Viewer</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Button variant="outline" size="sm" className="rounded-full" onClick={() => void kickMember(member.userId)}>
-                            Remove
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
+            <div className="space-y-2 rounded-xl border border-border/40 p-4">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Members</p>
+              {(members ?? []).map((member) => (
+                <div key={member.userId} className="flex items-center justify-between gap-3 rounded-lg bg-accent/30 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{member.name || member.email || member.userId}</p>
+                    {member.email ? <p className="text-xs text-muted-foreground">{member.email}</p> : null}
                   </div>
-                ))}
-              </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs border-0">{member.role}</Badge>
+                    {myRole === "owner" && member.role !== "owner" ? (
+                      <>
+                        <Select
+                          value={member.role}
+                          onValueChange={(value) => {
+                            if (value === "editor" || value === "commenter" || value === "viewer") {
+                              void updateRole(member.userId, value);
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-8 w-[120px] text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="editor">Editor</SelectItem>
+                            <SelectItem value="commenter">Commenter</SelectItem>
+                            <SelectItem value="viewer">Viewer</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => void kickMember(member.userId)}>
+                          Remove
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
             </div>
 
             {canEdit ? (
-              <div className="rounded-[22px] border border-border/70 bg-white/70 p-4 dark:bg-white/[0.05]">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Active invites</div>
-                <div className="mt-4 space-y-2">
-                  {(invites ?? []).map((invite) => {
-                    const link = `${window.location.origin}/invite/${invite.token}`;
-                    return (
-                      <div key={invite.token} className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-white/70 px-4 py-3 dark:bg-white/[0.04] sm:flex-row sm:items-center sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-foreground">{invite.email || "Link invite"}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">{invite.role}</div>
-                          <div className="mt-2 break-all text-xs text-muted-foreground">{link}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button variant="outline" size="sm" className="rounded-full" onClick={() => navigator.clipboard.writeText(link)}>
-                            Copy
-                          </Button>
-                        </div>
+              <div className="space-y-2 rounded-xl border border-border/40 p-4">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground">Active invites</p>
+                {(invites ?? []).map((invite) => {
+                  const link = `${window.location.origin}/invite/${invite.token}`;
+                  return (
+                    <div key={invite.token} className="flex items-center justify-between gap-3 rounded-lg bg-accent/30 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-foreground">{invite.email || "Link invite"}</p>
+                        <p className="text-xs text-muted-foreground">{invite.role}</p>
                       </div>
-                    );
-                  })}
-                  {(invites ?? []).length === 0 ? <div className="text-sm text-muted-foreground">No active invites.</div> : null}
-                </div>
+                      <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => navigator.clipboard.writeText(link)}>
+                        Copy
+                      </Button>
+                    </div>
+                  );
+                })}
+                {(invites ?? []).length === 0 ? <p className="text-xs text-muted-foreground">No active invites.</p> : null}
               </div>
             ) : null}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShareOpen(false)} className="rounded-full">
-              Done
-            </Button>
+            <Button variant="ghost" onClick={() => setShareOpen(false)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Delete project dialog */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent className="border-border bg-background sm:max-w-xl">
+        <DialogContent className="border-border/50 bg-card sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Delete project</DialogTitle>
+            <DialogTitle className="font-display text-xl">Delete project</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 text-sm text-muted-foreground">
-            <div>This permanently deletes the project, its threads, uploads, invites, members, and project notes.</div>
-            <div className="font-medium text-foreground">{deepDive.title}</div>
-            {deleteError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                {deleteError}
-              </div>
-            ) : null}
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>This permanently deletes the project, threads, uploads, invites, members, and notes.</p>
+            <p className="font-medium text-foreground">{deepDive.title}</p>
+            {deleteError ? <p className="text-destructive">{deleteError}</p> : null}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDeleteOpen(false)} className="rounded-full" disabled={deletingDive}>
-              Cancel
-            </Button>
-            <Button onClick={confirmDeleteDeepDive} className="rounded-full" disabled={deletingDive}>
-              Delete
-            </Button>
+            <Button variant="ghost" onClick={() => setDeleteOpen(false)} disabled={deletingDive}>Cancel</Button>
+            <Button onClick={confirmDeleteDeepDive} disabled={deletingDive} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Rename thread */}
       <Dialog
         open={renameThreadOpen}
         onOpenChange={(open) => {
@@ -1330,34 +1292,26 @@ export default function DeepDive() {
           }
         }}
       >
-        <DialogContent className="border-border bg-background sm:max-w-lg">
+        <DialogContent className="border-border/50 bg-card sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Rename thread</DialogTitle>
+            <DialogTitle className="font-display text-xl">Rename thread</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-2">
             <Input
               value={renameThreadTitle}
               onChange={(event) => setRenameThreadTitle(event.target.value)}
               placeholder="Thread title"
-              className="rounded-2xl bg-white/80 dark:bg-white/[0.05]"
             />
-            {renameThreadError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                {renameThreadError}
-              </div>
-            ) : null}
+            {renameThreadError ? <p className="text-sm text-destructive">{renameThreadError}</p> : null}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setRenameThreadOpen(false)} className="rounded-full" disabled={savingThreadTitle}>
-              Cancel
-            </Button>
-            <Button onClick={() => void submitRenameThread()} className="rounded-full" disabled={savingThreadTitle || !renameThreadTitle.trim()}>
-              Save title
-            </Button>
+            <Button variant="ghost" onClick={() => setRenameThreadOpen(false)} disabled={savingThreadTitle}>Cancel</Button>
+            <Button onClick={() => void submitRenameThread()} disabled={savingThreadTitle || !renameThreadTitle.trim()}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Delete thread */}
       <AlertDialog
         open={threadDeleteTarget !== null}
         onOpenChange={(open) => {
@@ -1367,25 +1321,17 @@ export default function DeepDive() {
           }
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="border-border/50 bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete thread</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the thread and all of its messages from the project.
+              This removes the thread and all of its messages.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-3 text-sm">
-            <div className="font-medium text-foreground">{threadDeleteTarget?.title}</div>
-            {threadCount <= 1 ? (
-              <div className="rounded-2xl border border-border/70 bg-white/70 px-4 py-3 text-muted-foreground dark:bg-white/[0.04]">
-                Projects must keep at least one thread.
-              </div>
-            ) : null}
-            {threadDeleteError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-destructive">
-                {threadDeleteError}
-              </div>
-            ) : null}
+          <div className="space-y-2 text-sm">
+            <p className="font-medium text-foreground">{threadDeleteTarget?.title}</p>
+            {threadCount <= 1 ? <p className="text-muted-foreground">Projects must keep at least one thread.</p> : null}
+            {threadDeleteError ? <p className="text-destructive">{threadDeleteError}</p> : null}
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deletingThread}>Cancel</AlertDialogCancel>
@@ -1397,74 +1343,68 @@ export default function DeepDive() {
               disabled={deletingThread || threadCount <= 1}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete thread
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Ask another model */}
       <Dialog open={!!askDialog?.open} onOpenChange={(open) => !open && setAskDialog(null)}>
-        <DialogContent className="border-border bg-background sm:max-w-xl">
+        <DialogContent className="border-border/50 bg-card sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Ask another model</DialogTitle>
+            <DialogTitle className="font-display text-xl">Ask another model</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {participantOrder.map(provider => (
-              <label key={provider} className="flex items-center gap-3 rounded-2xl border border-border/80 bg-white/80 px-4 py-3 dark:bg-white/[0.05]">
+              <label key={provider} className="flex items-center gap-3 rounded-xl border border-border/40 px-3 py-2.5 transition-colors hover:bg-accent/50 cursor-pointer">
                 <Checkbox checked={askDialog?.target === provider} onCheckedChange={() => askDialog && setAskDialog({ ...askDialog, target: provider })} />
                 <div
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold"
-                  style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}) / 0.14)`, color: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold"
+                  style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}) / 0.12)`, color: `hsl(var(--${AI_MODELS[provider].color}))` }}
                 >
                   {AI_MODELS[provider].name.slice(0, 1)}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">{AI_MODELS[provider].name}</div>
-                  <div className="truncate text-xs text-muted-foreground">{AI_MODELS[provider].fullName}</div>
+                  <p className="text-sm font-medium text-foreground">{AI_MODELS[provider].name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{AI_MODELS[provider].fullName}</p>
                 </div>
               </label>
             ))}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setAskDialog(null)} className="rounded-full">
-              Cancel
-            </Button>
-            <Button onClick={confirmAskOther} className="rounded-full" disabled={creatingThread}>
-              Ask
-            </Button>
+            <Button variant="ghost" onClick={() => setAskDialog(null)}>Cancel</Button>
+            <Button onClick={confirmAskOther} disabled={creatingThread}>Ask</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Debate */}
       <Dialog open={!!debateDialog?.open} onOpenChange={(open) => !open && setDebateDialog(null)}>
-        <DialogContent className="border-border bg-background sm:max-w-xl">
+        <DialogContent className="border-border/50 bg-card sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Start a debate thread</DialogTitle>
+            <DialogTitle className="font-display text-xl">Start a debate</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {participantOrder.map(provider => (
-              <label key={provider} className="flex items-center gap-3 rounded-2xl border border-border/80 bg-white/80 px-4 py-3 dark:bg-white/[0.05]">
+              <label key={provider} className="flex items-center gap-3 rounded-xl border border-border/40 px-3 py-2.5 transition-colors hover:bg-accent/50 cursor-pointer">
                 <Checkbox checked={debateParticipants.includes(provider)} onCheckedChange={() => toggleDebater(provider)} />
                 <div
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold"
-                  style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}) / 0.14)`, color: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold"
+                  style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}) / 0.12)`, color: `hsl(var(--${AI_MODELS[provider].color}))` }}
                 >
                   {AI_MODELS[provider].name.slice(0, 1)}
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-foreground">{AI_MODELS[provider].name}</div>
-                  <div className="truncate text-xs text-muted-foreground">{AI_MODELS[provider].fullName}</div>
+                  <p className="text-sm font-medium text-foreground">{AI_MODELS[provider].name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{AI_MODELS[provider].fullName}</p>
                 </div>
               </label>
             ))}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDebateDialog(null)} className="rounded-full">
-              Cancel
-            </Button>
-            <Button onClick={confirmDebate} className="rounded-full" disabled={creatingThread || runningDebate}>
-              Start
-            </Button>
+            <Button variant="ghost" onClick={() => setDebateDialog(null)}>Cancel</Button>
+            <Button onClick={confirmDebate} disabled={creatingThread || runningDebate}>Start</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
