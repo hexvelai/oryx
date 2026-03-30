@@ -59,7 +59,7 @@ export default function Invite() {
       <AppHeader />
       <div className="mx-auto flex min-h-[70vh] max-w-sm items-center justify-center px-6 py-10">
         <div className="w-full text-center animate-slide-up">
-          <BrandLogo gradient showLabel={false} className="justify-center" />
+          <BrandLogo showLabel={false} className="justify-center" />
 
           <p className="mt-8 text-xs uppercase tracking-widest text-muted-foreground">Invite</p>
           <h1 className="mt-3 text-2xl font-display text-foreground">{status.title}</h1>
@@ -67,13 +67,13 @@ export default function Invite() {
 
           {inviteInfo ? (
             <div className="mt-8 flex flex-col gap-2">
-              <button
-                className="btn-gradient w-full rounded-xl px-6 py-3 text-sm font-medium shadow-md gradient-glow"
+              <Button
+                className="w-full"
                 disabled={isWorking}
                 onClick={() => void onAccept()}
               >
                 Accept invite
-              </button>
+              </Button>
               <Button variant="ghost" className="w-full" disabled={isWorking} onClick={() => void onDecline()}>
                 Decline
               </Button>

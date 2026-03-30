@@ -19,10 +19,7 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled,
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const actualValue = value ?? uncontrolledValue;
 
-  useEffect(() => {
-    if (!autoFocus) return;
-    inputRef.current?.focus();
-  }, [autoFocus]);
+  useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
 
   const handleSubmit = () => {
     const trimmed = actualValue.trim();
@@ -32,35 +29,28 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled,
     if (inputRef.current) inputRef.current.style.height = "auto";
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
-  };
+  const handleKeyDown = (e: React.KeyboardEvent) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); } };
 
   const handleInput = () => {
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-      inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, compact ? 80 : 140) + "px";
-    }
+    if (inputRef.current) { inputRef.current.style.height = "auto"; inputRef.current.style.height = Math.min(inputRef.current.scrollHeight, compact ? 80 : 140) + "px"; }
   };
 
   const hasValue = actualValue.trim().length > 0;
 
   return (
     <div className={cn(
-      "relative rounded-2xl border border-border/40 bg-card transition-all duration-200",
-      "focus-within:border-[hsl(var(--gradient-from)/0.3)] focus-within:shadow-[0_0_16px_-4px_hsl(var(--gradient-from)/0.1)]",
-      compact ? "p-2" : "p-3",
+      "rounded-xl border border-border/50 bg-card transition-colors duration-150",
+      "focus-within:border-primary/25",
+      compact ? "p-2" : "p-2.5",
     )}>
-      {reply ? (
-        <div className={cn("mb-2 flex items-start justify-between gap-2 rounded-xl bg-primary/[0.04] border border-primary/10 px-3 py-2 text-xs", compact && "mb-1.5")}>
-          <button type="button" onClick={reply.onClick} className="min-w-0 flex-1 text-left">
-            <p className="text-[10px] uppercase tracking-widest text-primary/60">Replying to</p>
-            <p className="mt-0.5 truncate text-foreground">{reply.label}</p>
+      {reply && (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-1.5 text-xs">
+          <button type="button" onClick={reply.onClick} className="min-w-0 flex-1 truncate text-left text-muted-foreground">
+            Re: <span className="text-foreground">{reply.label}</span>
           </button>
-          <button type="button" onClick={reply.onCancel} className="mt-0.5 text-muted-foreground hover:text-foreground transition-colors"><X className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={reply.onCancel} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
         </div>
-      ) : null}
-
+      )}
       <div className="flex items-end gap-2">
         <Textarea
           ref={inputRef}
@@ -71,7 +61,7 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled,
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
-          className={cn("min-h-0 flex-1 resize-none px-1 leading-relaxed shadow-none", compact ? "py-1 text-xs" : "py-1.5 text-sm")}
+          className={cn("min-h-0 flex-1 resize-none px-1 leading-relaxed shadow-none", compact ? "py-0.5 text-xs" : "py-1 text-sm")}
           style={{ maxHeight: compact ? 80 : 140, height: "auto" }}
         />
         <button
@@ -79,14 +69,14 @@ export function ChatInput({ onSend, placeholder = "Type a message...", disabled,
           onClick={handleSubmit}
           disabled={!hasValue || disabled}
           className={cn(
-            "flex shrink-0 items-center justify-center rounded-xl transition-all duration-200",
-            compact ? "h-7 w-7" : "h-9 w-9",
+            "flex shrink-0 items-center justify-center rounded-lg transition-all duration-150",
+            compact ? "h-7 w-7" : "h-8 w-8",
             hasValue && !disabled
-              ? "btn-gradient shadow-sm gradient-glow"
-              : "bg-muted/60 text-muted-foreground/40 cursor-not-allowed"
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              : "bg-muted text-muted-foreground/30 cursor-not-allowed"
           )}
         >
-          <ArrowUp className={cn(compact ? "h-3 w-3" : "h-4 w-4")} />
+          <ArrowUp className={cn(compact ? "h-3 w-3" : "h-3.5 w-3.5")} />
         </button>
       </div>
     </div>

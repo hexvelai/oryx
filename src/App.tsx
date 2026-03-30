@@ -26,44 +26,44 @@ const App = () => (
         <BrowserRouter>
           <AuthLoading>
             <div className="flex min-h-screen items-center justify-center bg-background">
-              <div className="flex flex-col items-center gap-4 animate-fade-up">
-                <BrandLogo gradient showLabel={false} />
-                <p className="text-sm text-muted-foreground animate-pulse">Loading workspace...</p>
+              <div className="flex flex-col items-center gap-3 animate-fade-up">
+                <BrandLogo showLabel={false} />
+                <p className="text-xs text-muted-foreground animate-pulse">Loading...</p>
               </div>
             </div>
           </AuthLoading>
           <Unauthenticated>
             <div className="gradient-bg-mesh flex min-h-screen items-center justify-center px-6">
-              <div className="w-full max-w-sm animate-slide-up">
+              <div className="w-full max-w-sm animate-fade-up">
                 <SignedOut>
                   <div className="flex flex-col items-center text-center">
-                    <BrandLogo gradient />
+                    <BrandLogo />
 
-                    <h1 className="mt-10 text-3xl font-display tracking-tight text-foreground sm:text-4xl">
-                      Welcome back.
+                    <h1 className="mt-8 text-2xl font-display tracking-tight text-foreground">
+                      Sign in to oryx
                     </h1>
-                    <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                      Organize work into projects, compare models, and keep every branch of thinking in one place.
+                    <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted-foreground">
+                      Projects, threads, and multi-model conversations.
                     </p>
 
-                    <div className="mt-10 w-full">
+                    <div className="mt-8 w-full">
                       <SignInButton mode="modal" forceRedirectUrl={window.location.pathname}>
-                        <button className="btn-gradient w-full rounded-xl px-6 py-3.5 text-base font-medium shadow-lg gradient-glow">
+                        <button className="w-full rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
                           Continue with Google
                         </button>
                       </SignInButton>
                     </div>
 
-                    <p className="mt-8 text-[11px] text-muted-foreground/50 uppercase tracking-widest">
+                    <p className="mt-6 text-[10px] text-muted-foreground/40 uppercase tracking-widest">
                       Powered by Convex & Clerk
                     </p>
                   </div>
                 </SignedOut>
                 <SignedIn>
                   <div className="flex flex-col items-center text-center">
-                    <BrandLogo gradient />
+                    <BrandLogo />
 
-                    <h1 className="mt-10 text-2xl font-display tracking-tight text-foreground">
+                    <h1 className="mt-8 text-xl font-display tracking-tight text-foreground">
                       Finishing setup...
                     </h1>
                     <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
