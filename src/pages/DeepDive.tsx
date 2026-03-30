@@ -28,7 +28,6 @@ import { BrandLogo } from "@/components/brand/BrandLogo";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { usePersistedBoolean } from "@/hooks/usePersistedBoolean";
 import { cn } from "@/lib/utils";
-import { floatingRaisedSurfaceClassName } from "@/lib/floating-surface";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -577,29 +576,100 @@ export default function DeepDive() {
       <AppHeader
         workspace={{
           leading: (
-            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 shrink-0 rounded-full"
-                onClick={() => navigate("/")}
-                aria-label="All projects"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <button
-                type="button"
-                onClick={() => navigate("/")}
-                className="shrink-0 rounded-lg p-0.5 transition-colors hover:bg-muted/70"
-                aria-label="Home"
-              >
-                <BrandLogo compact showLabel={false} className="gap-0" />
-              </button>
-              <Separator orientation="vertical" className="hidden h-6 sm:block" />
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-full"
+                  onClick={() => navigate("/")}
+                  aria-label="All projects"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => navigate("/")}
+                  className="shrink-0 rounded-lg p-0.5 transition-colors hover:bg-muted/70"
+                  aria-label="Home"
+                >
+                  <BrandLogo compact showLabel={false} className="gap-0" />
+                </button>
+                <Separator orientation="vertical" className="hidden h-6 sm:block" />
+              </div>
               <div className="min-w-0 flex-1 text-left">
                 <div className="truncate text-sm font-medium leading-tight text-foreground">{deepDive.title}</div>
-                <div className="truncate text-xs text-muted-foreground">{activeThread?.title ?? "Thread"}</div>
+                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="shrink-0 rounded-md border border-border/50 bg-background/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground dark:bg-background/25">
+                    {activeType.label}
+                  </span>
+                  <span className="min-w-0 truncate text-xs font-semibold text-foreground sm:text-sm">
+                    {activeThread?.title ?? "Thread"}
+                  </span>
+                </div>
+                <p className="mt-0.5 line-clamp-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">{activeType.detail}</p>
+              </div>
+              <div className="hidden shrink-0 items-center gap-1.5 lg:flex" title="Models in this project">
+                {deepDive.providers.map((provider) => (
+                  <span
+                    key={provider}
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
+                  />
+                ))}
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Badge
+                  variant="secondary"
+                  className="inline-flex max-w-[9rem] shrink-0 truncate rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-normal tabular-nums text-foreground sm:max-w-none"
+                >
+                  {contextMessages.length} in context
+                </Badge>
+                {activeThread?.type !== "chat" ? (
+                  <Badge variant="outline" className="hidden rounded-md px-2 py-0.5 text-[10px] font-normal sm:inline-flex">
+                    Branched
+                  </Badge>
+                ) : null}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="icon" className="h-8 w-8 rounded-full border-border/70" aria-label="Project menu">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem onClick={() => setShareOpen(true)}>
+                      <Users2 className="mr-2 h-4 w-4" />
+                      Share project
+                    </DropdownMenuItem>
+                    {myRole !== "owner" ? (
+                      <DropdownMenuItem
+                        disabled={leavingDive}
+                        onClick={() => {
+                          if (!deepDive) return;
+                          void (async () => {
+                            setLeavingDive(true);
+                            try {
+                              await leaveDeepDive({ deepDiveId: deepDive.id });
+                              navigate("/", { replace: true });
+                            } finally {
+                              setLeavingDive(false);
+                            }
+                          })();
+                        }}
+                      >
+                        <LogOut className="mr-2 h-4 w-4" />
+                        Leave project
+                      </DropdownMenuItem>
+                    ) : null}
+                    {myRole === "owner" ? (
+                      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteOpen(true)}>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete project
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           ),
@@ -746,89 +816,7 @@ export default function DeepDive() {
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch overflow-hidden bg-background">
-          <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-1 flex-col">
-          <div
-            className={cn(
-              floatingRaisedSurfaceClassName(false),
-              "mb-3 mt-3 flex shrink-0 items-center justify-between gap-2 px-4 py-2.5 sm:px-5",
-            )}
-          >
-            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-              <span className="hidden shrink-0 rounded-md border border-border/50 bg-background/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.35)] sm:inline-block dark:bg-background/25 dark:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
-                {activeType.label}
-              </span>
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-foreground sm:text-base">{activeThread?.title ?? "Thread"}</h2>
-                <p className="hidden truncate text-xs text-muted-foreground sm:block">{activeType.detail}</p>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-              <div className="hidden items-center gap-1.5 lg:flex" title="Models">
-                {deepDive.providers.map((provider) => (
-                  <span
-                    key={provider}
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
-                  />
-                ))}
-              </div>
-              <Badge
-                variant="secondary"
-                className="shrink-0 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[10px] font-normal tabular-nums text-foreground"
-              >
-                {contextMessages.length} in context
-              </Badge>
-              {activeThread?.type !== "chat" ? (
-                <Badge variant="outline" className="hidden rounded-md px-2 py-0.5 text-[10px] font-normal sm:inline-flex">
-                  Branched
-                </Badge>
-              ) : null}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" className="h-8 w-8 rounded-full border-border/70" aria-label="Project menu">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuItem onClick={() => setShareOpen(true)}>
-                    <Users2 className="mr-2 h-4 w-4" />
-                    Share project
-                  </DropdownMenuItem>
-                  {myRole !== "owner" ? (
-                    <DropdownMenuItem
-                      disabled={leavingDive}
-                      onClick={() => {
-                        if (!deepDive) return;
-                        void (async () => {
-                          setLeavingDive(true);
-                          try {
-                            await leaveDeepDive({ deepDiveId: deepDive.id });
-                            navigate("/", { replace: true });
-                          } finally {
-                            setLeavingDive(false);
-                          }
-                        })();
-                      }}
-                    >
-                      <LogOut className="mr-2 h-4 w-4" />
-                      Leave project
-                    </DropdownMenuItem>
-                  ) : null}
-                  {myRole === "owner" ? (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => setDeleteOpen(true)}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete project
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-[min(100%,72rem)] flex-1 flex-col">
             {!activeThread ? null : activeThread.type === "chat" ? (
               <ThreadChatPanel
                 key={activeThread.id}
@@ -1085,7 +1073,6 @@ export default function DeepDive() {
                 )}
               </div>
             )}
-          </div>
           </div>
         </section>
 

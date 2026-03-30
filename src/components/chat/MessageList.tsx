@@ -115,7 +115,7 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
   };
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-3">
+    <div className="flex-1 space-y-5 overflow-y-auto scrollbar-thin px-3 py-4 sm:space-y-6 sm:px-5">
       {messages.length === 0 && !isTyping && (
         <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
           Start a conversation...
@@ -220,103 +220,113 @@ function MessageBubble({
   const colorVar = provider === "master" ? "ai-master" : model?.color;
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`relative group max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
-          isUser
-            ? "bg-secondary text-foreground"
-            : "bg-card border border-border text-foreground"
-        }`}
-      >
+    <div className={`flex w-full min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
+      <div className={`min-w-0 ${isUser ? "max-w-[min(92%,28rem)]" : "w-full max-w-none"}`}>
         {!isUser && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute top-1.5 right-1.5 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label="Message actions"
-              >
-                <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-52 p-1" align="end">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onAsk}
-                className="w-full justify-start"
-              >
-                {askLabel}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onVote}
-                className="w-full justify-start"
-              >
-                Call a vote
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onDebate}
-                className="w-full justify-start"
-              >
-                Start a debate
-              </Button>
-            </PopoverContent>
-          </Popover>
+          <div className="group mb-1 flex items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              {showProviderBadge && provider ? (
+                <>
+                  <div
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: colorVar ? `hsl(var(--${colorVar}))` : undefined }}
+                  />
+                  <span
+                    className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                    style={colorVar ? { color: `hsl(var(--${colorVar}))` } : undefined}
+                  >
+                    {provider === "master" ? "Router" : model?.name}
+                  </span>
+                </>
+              ) : null}
+            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-label="Message actions"
+                >
+                  <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-52 p-1" align="end">
+                <Button variant="ghost" size="sm" onClick={onAsk} className="w-full justify-start">
+                  {askLabel}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={onVote} className="w-full justify-start">
+                  Call a vote
+                </Button>
+                <Button variant="ghost" size="sm" onClick={onDebate} className="w-full justify-start">
+                  Start a debate
+                </Button>
+              </PopoverContent>
+            </Popover>
+          </div>
         )}
 
-        {!isUser && showProviderBadge && provider && (
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <div
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: colorVar ? `hsl(var(--${colorVar}))` : undefined }}
-            />
-            <span
-              className="text-xs font-medium"
-              style={{ color: colorVar ? `hsl(var(--${colorVar}))` : undefined }}
-            >
-              {provider === "master" ? "Router" : model?.name}
-            </span>
+        {isUser ? (
+          <div className="rounded-2xl bg-secondary px-3.5 py-2.5 text-sm leading-relaxed text-foreground shadow-sm">
+            <div className="break-words text-pretty">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
+                components={{
+                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                  a: ({ children, href }) => (
+                    <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                      {children}
+                    </a>
+                  ),
+                  ul: ({ children }) => <ul className="mb-2 list-disc pl-6 last:mb-0">{children}</ul>,
+                  ol: ({ children }) => <ol className="mb-2 list-decimal pl-6 last:mb-0">{children}</ol>,
+                  li: ({ children }) => <li className="mb-1 last:mb-0">{children}</li>,
+                  blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-border/70 pl-3 italic">{children}</blockquote>,
+                  code: ({ children, className }) => (
+                    <code className={`rounded bg-black/5 px-1 py-0.5 font-mono text-[0.9em] dark:bg-white/[0.06] ${className ?? ""}`}>
+                      {children}
+                    </code>
+                  ),
+                  pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[18px] bg-black/5 p-3 dark:bg-white/[0.06]">{children}</pre>,
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
           </div>
-        )}
-        <div className="break-words text-pretty">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
-            rehypePlugins={[rehypeKatex]}
-            components={{
-              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-              a: ({ children, href }) => (
-                <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-4">
-                  {children}
-                </a>
-              ),
-              ul: ({ children }) => <ul className="mb-2 list-disc pl-6 last:mb-0">{children}</ul>,
-              ol: ({ children }) => <ol className="mb-2 list-decimal pl-6 last:mb-0">{children}</ol>,
-              li: ({ children }) => <li className="mb-1 last:mb-0">{children}</li>,
-              blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-border/70 pl-3 italic">{children}</blockquote>,
-              code: ({ children, className }) => (
-                <code className={`rounded bg-black/5 px-1 py-0.5 font-mono text-[0.9em] dark:bg-white/[0.06] ${className ?? ""}`}>
-                  {children}
-                </code>
-              ),
-              pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[18px] bg-black/5 p-3 dark:bg-white/[0.06]">{children}</pre>,
-            }}
-          >
-            {message.content}
-          </ReactMarkdown>
-        </div>
-        {!isUser && typeof message.reasoningTokens === "number" && (
-          <div className="mt-1 text-[12px]" style={{ color: "#7a8aaa" }}>
-            Reasoning tokens: {message.reasoningTokens}
-          </div>
-        )}
-        {!isUser && message.routingNote && (
-          <div className="mt-1 text-[12px]" style={{ color: "#7a8aaa" }}>
-            {message.routingNote}
+        ) : (
+          <div className="min-w-0 text-[15px] leading-7 text-foreground sm:text-base">
+            <div className="break-words text-pretty [&_h1]:mb-3 [&_h1]:mt-6 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:mt-5 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:text-sm [&_h3]:font-semibold [&_hr]:my-6 [&_hr]:border-border/60">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
+                components={{
+                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                  a: ({ children, href }) => (
+                    <a href={href} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                      {children}
+                    </a>
+                  ),
+                  ul: ({ children }) => <ul className="mb-2 list-disc pl-6 last:mb-0">{children}</ul>,
+                  ol: ({ children }) => <ol className="mb-2 list-decimal pl-6 last:mb-0">{children}</ol>,
+                  li: ({ children }) => <li className="mb-1 last:mb-0">{children}</li>,
+                  blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-border/70 pl-3 italic">{children}</blockquote>,
+                  code: ({ children, className }) => (
+                    <code className={`rounded bg-black/5 px-1 py-0.5 font-mono text-[0.9em] dark:bg-white/[0.06] ${className ?? ""}`}>
+                      {children}
+                    </code>
+                  ),
+                  pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[18px] bg-black/5 p-3 dark:bg-white/[0.06]">{children}</pre>,
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+            {typeof message.reasoningTokens === "number" && (
+              <div className="mt-2 text-[12px] text-muted-foreground">Reasoning tokens: {message.reasoningTokens}</div>
+            )}
+            {message.routingNote && <div className="mt-2 text-[12px] text-muted-foreground">{message.routingNote}</div>}
           </div>
         )}
       </div>

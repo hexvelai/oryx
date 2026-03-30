@@ -130,9 +130,9 @@ export function ThreadChatPanel({
     const el = document.getElementById(`thread-msg-${messageId}`);
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("ring-2", "ring-primary/40", "rounded-[26px]");
+    el.classList.add("ring-2", "ring-primary/40", "rounded-lg");
     window.setTimeout(() => {
-      el.classList.remove("ring-2", "ring-primary/40", "rounded-[26px]");
+      el.classList.remove("ring-2", "ring-primary/40", "rounded-lg");
     }, 900);
   };
 
@@ -140,9 +140,9 @@ export function ThreadChatPanel({
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div
         ref={scrollerRef}
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin px-4 py-4 sm:px-5 sm:py-5"
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin px-4 py-5 sm:px-8 sm:py-6 lg:px-12"
       >
-        <div className="space-y-4">
+        <div className="space-y-6 sm:space-y-8">
           {visibleMessages.length === 0 && (
             <div className="flex w-full justify-center pt-2 sm:pt-6">
               <div className="w-full max-w-md rounded-xl border border-border bg-muted/25 px-5 py-8 text-center dark:bg-muted/15">
@@ -177,12 +177,63 @@ export function ThreadChatPanel({
             const replyToExcerpt = message.metadata?.replyTo?.excerpt;
 
             return (
-              <div key={message.id} id={`thread-msg-${message.id}`} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[88%] ${isUser ? "" : "group relative"}`}>
-                  {!isUser && model && (
-                    <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
-                      <span>{model.name}</span>
+              <div
+                key={message.id}
+                id={`thread-msg-${message.id}`}
+                className={`flex w-full min-w-0 ${isUser ? "justify-end" : "justify-start"}`}
+              >
+                <div className={`min-w-0 ${isUser ? "max-w-[min(92%,32rem)]" : "w-full max-w-none"}`}>
+                  {!isUser && (
+                    <div className="group mb-1 flex items-center gap-2 sm:mb-1.5">
+                      <div className="flex min-w-0 flex-1 items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                        {model ? (
+                          <>
+                            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
+                            <span>{model.name}</span>
+                          </>
+                        ) : (
+                          <span>Assistant</span>
+                        )}
+                      </div>
+                      {showActions ? (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                              aria-label="Message actions"
+                            >
+                              <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-52 p-1" align="end">
+                            {onReplyToMessage && canSend ? (
+                              <Button variant="ghost" size="sm" onClick={() => onReplyToMessage(message)} className="w-full justify-start">
+                                Reply in thread
+                              </Button>
+                            ) : null}
+                            {onReplyInHumanChat ? (
+                              <Button variant="ghost" size="sm" onClick={() => onReplyInHumanChat(message)} className="w-full justify-start">
+                                Reply in project notes
+                              </Button>
+                            ) : null}
+                            {canUseTools ? (
+                              <>
+                                <Button variant="ghost" size="sm" onClick={() => onAskOther(visibleMessages.slice(0, idx + 1), provider)} className="w-full justify-start">
+                                  Ask {AI_MODELS[defaultOther(provider)].name}
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => onVote(visibleMessages.slice(0, idx + 1))} className="w-full justify-start">
+                                  Call a vote
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => onDebate(visibleMessages.slice(0, idx + 1))} className="w-full justify-start">
+                                  Start a debate
+                                </Button>
+                              </>
+                            ) : null}
+                          </PopoverContent>
+                        </Popover>
+                      ) : null}
                     </div>
                   )}
                   {isUser && authorLabel ? (
@@ -195,66 +246,37 @@ export function ThreadChatPanel({
                     </div>
                   ) : null}
 
-                  <div
-                    className={`rounded-[22px] px-4 py-3 text-sm leading-7 shadow-sm ${
-                      isUser
-                        ? "border border-transparent bg-[hsl(var(--user-bubble))] text-foreground"
-                        : "border border-border/70 bg-white/78 text-foreground dark:bg-white/[0.05]"
-                    }`}
-                  >
-                    {showActions ? (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-2 top-9 h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
-                            aria-label="Message actions"
-                          >
-                            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-52 p-1" align="end">
-                          {onReplyToMessage && canSend ? (
-                            <Button variant="ghost" size="sm" onClick={() => onReplyToMessage(message)} className="w-full justify-start">
-                              Reply in thread
-                            </Button>
-                          ) : null}
-                          {onReplyInHumanChat ? (
-                            <Button variant="ghost" size="sm" onClick={() => onReplyInHumanChat(message)} className="w-full justify-start">
-                              Reply in project notes
-                            </Button>
-                          ) : null}
-                          {canUseTools ? (
-                            <>
-                              <Button variant="ghost" size="sm" onClick={() => onAskOther(visibleMessages.slice(0, idx + 1), provider)} className="w-full justify-start">
-                                Ask {AI_MODELS[defaultOther(provider)].name}
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => onVote(visibleMessages.slice(0, idx + 1))} className="w-full justify-start">
-                                Call a vote
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => onDebate(visibleMessages.slice(0, idx + 1))} className="w-full justify-start">
-                                Start a debate
-                              </Button>
-                            </>
-                          ) : null}
-                        </PopoverContent>
-                      </Popover>
-                    ) : null}
-
-                    {replyToMessageId ? (
-                      <button
-                        type="button"
-                        onClick={() => jumpToMessage(replyToMessageId)}
-                        className="mb-3 w-full rounded-[18px] border border-border/70 bg-white/60 px-3 py-2 text-left text-xs dark:bg-white/[0.03]"
-                      >
-                        <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">In reply to</div>
-                        <div className="mt-1 truncate text-foreground">{replyToExcerpt || "View message"}</div>
-                      </button>
-                    ) : null}
-
-                    <div className="break-words text-pretty">{renderMarkdown(text)}</div>
-                  </div>
+                  {isUser ? (
+                    <div className="rounded-2xl border border-transparent bg-[hsl(var(--user-bubble))] px-4 py-3 text-sm leading-7 text-foreground shadow-sm">
+                      {replyToMessageId ? (
+                        <button
+                          type="button"
+                          onClick={() => jumpToMessage(replyToMessageId)}
+                          className="mb-3 w-full rounded-xl border border-border/60 bg-background/40 px-3 py-2 text-left text-xs dark:bg-background/20"
+                        >
+                          <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">In reply to</div>
+                          <div className="mt-1 truncate text-foreground">{replyToExcerpt || "View message"}</div>
+                        </button>
+                      ) : null}
+                      <div className="break-words text-pretty">{renderMarkdown(text)}</div>
+                    </div>
+                  ) : (
+                    <div className="min-w-0 text-[15px] leading-7 text-foreground sm:text-base">
+                      {replyToMessageId ? (
+                        <button
+                          type="button"
+                          onClick={() => jumpToMessage(replyToMessageId)}
+                          className="mb-3 w-full max-w-xl rounded-xl border border-border/50 bg-muted/30 px-3 py-2 text-left text-sm dark:bg-muted/20"
+                        >
+                          <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">In reply to</div>
+                          <div className="mt-1 truncate text-foreground">{replyToExcerpt || "View message"}</div>
+                        </button>
+                      ) : null}
+                      <div className="break-words text-pretty [&_h1]:mb-3 [&_h1]:mt-6 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:mt-5 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:text-sm [&_h3]:font-semibold [&_hr]:my-6 [&_hr]:border-border/60">
+                        {renderMarkdown(text)}
+                      </div>
+                    </div>
+                  )}
 
                   {!isUser && message.metadata?.routingNote && (
                     <div className="mt-2 text-[12px] text-muted-foreground">{message.metadata.routingNote}</div>

@@ -199,7 +199,7 @@ export function AppHeader({ workspace }: AppHeaderProps) {
         }`}
       >
         {workspace ? (
-          <div className="mx-auto flex h-12 w-full max-w-none items-center gap-2 px-3 sm:h-[52px] sm:gap-3 sm:px-4">
+          <div className="mx-auto flex min-h-12 w-full max-w-none items-center gap-2 px-3 py-1.5 sm:min-h-[52px] sm:gap-3 sm:px-4 sm:py-2">
             <div className="min-w-0 flex-1">{workspace.leading}</div>
             {workspace.beforeSystemControls ? (
               <div className="flex shrink-0 items-center gap-1">{workspace.beforeSystemControls}</div>
