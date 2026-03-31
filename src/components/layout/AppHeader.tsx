@@ -181,7 +181,7 @@ export function AppHeader({ workspace }: AppHeaderProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-border/50 bg-background">
+      <header className="sticky top-0 z-40 overflow-visible border-b border-border/50 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
         {workspace ? (
           <div className="mx-auto flex h-14 w-full max-w-none items-center gap-2 px-3 sm:gap-3 sm:px-4">
             <div className="min-w-0 flex-1">{workspace.leading}</div>
@@ -191,17 +191,17 @@ export function AppHeader({ workspace }: AppHeaderProps) {
             {systemControls}
           </div>
         ) : (
-          <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
-            <div className="flex min-w-0 items-center">{aiSettingsButton}</div>
+          <div className="mx-auto grid h-14 w-full max-w-5xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4 sm:px-6">
+            <div className="flex min-w-0 items-center justify-self-start">{aiSettingsButton}</div>
             <button
               type="button"
               onClick={() => navigate("/")}
-              className="absolute left-1/2 -translate-x-1/2 transition-opacity hover:opacity-80"
+              className="flex shrink-0 items-center justify-center justify-self-center rounded-full outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               aria-label="Home"
             >
               <BrandLogo large showLabel={false} className="gap-0" />
             </button>
-            <div className="flex min-w-0 items-center">{homeTrailingControls}</div>
+            <div className="flex min-w-0 items-center justify-self-end">{homeTrailingControls}</div>
           </div>
         )}
       </header>

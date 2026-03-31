@@ -22,12 +22,12 @@ export function BrandLogo({
   const wrap = compact
     ? "h-8 w-8"
     : large
-      ? "flex h-9 w-9 items-center justify-center sm:h-10 sm:w-10"
+      ? "flex h-8 w-8 items-center justify-center sm:h-8 sm:w-8"
       : "h-10 w-10";
   const img = compact
     ? "h-6 w-6"
     : large
-      ? "h-8 w-8 origin-center scale-[2.15] object-contain sm:h-9 sm:w-9 sm:scale-[2.35]"
+      ? "h-7 w-7 origin-center scale-[1.52] object-contain sm:scale-[1.58]"
       : "h-8 w-8";
   const gap = large ? (showLabel ? "gap-3" : "gap-0") : "gap-2.5";
   const labelSize = large ? "text-2xl sm:text-3xl" : "text-lg";
