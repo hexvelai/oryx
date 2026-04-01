@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChatProvider } from "@/context/ChatContext";
 import { Authenticated, Unauthenticated, AuthLoading } from "convex/react";
 import { SignInButton, SignOutButton, SignedIn, SignedOut } from "@clerk/clerk-react";
+import { Analytics } from "@vercel/analytics/react";
 import Index from "./pages/Index.tsx";
 import DeepDive from "./pages/DeepDive.tsx";
 import DeepDives from "./pages/DeepDives.tsx";
@@ -23,6 +24,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <Analytics />
         <BrowserRouter>
           <AuthLoading>
             <div className="flex min-h-screen items-center justify-center bg-background">
