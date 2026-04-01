@@ -20,29 +20,29 @@ export function BrandLogo({
   gradient = false,
 }: BrandLogoProps) {
   const wrap = compact
+    ? "h-10 w-10"
+    : large
+      ? "flex h-12 w-12 items-center justify-center sm:h-14 sm:w-14"
+      : "h-12 w-12";
+  const img = compact
     ? "h-8 w-8"
     : large
-      ? "flex h-8 w-8 items-center justify-center sm:h-8 sm:w-8"
+      ? "h-12 w-12 object-contain sm:h-14 sm:w-14"
       : "h-10 w-10";
-  const img = compact
-    ? "h-6 w-6"
-    : large
-      ? "h-7 w-7 origin-center scale-[1.52] object-contain sm:scale-[1.58]"
-      : "h-8 w-8";
   const gap = large ? (showLabel ? "gap-3" : "gap-0") : "gap-2.5";
-  const labelSize = large ? "text-2xl sm:text-3xl" : "text-lg";
+  const labelSize = large ? "text-3xl sm:text-4xl" : "text-xl";
 
   return (
     <div className={cn("flex items-center", gap, className)}>
       <span className={cn("flex items-center justify-center", wrap)}>
         <img
-          src="/oryx-logo-light.svg"
+          src="/oryxmaroon.svg"
           alt=""
           aria-hidden="true"
           className={cn("block object-contain dark:hidden", img, iconClassName)}
         />
         <img
-          src="/oryx-logo-dark.svg"
+          src="/oryxwhite.svg"
           alt=""
           aria-hidden="true"
           className={cn("hidden object-contain dark:block", img, iconClassName)}

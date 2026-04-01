@@ -183,7 +183,7 @@ export function AppHeader({ workspace }: AppHeaderProps) {
     <>
       <header className="sticky top-0 z-40 overflow-visible border-b border-border/50 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
         {workspace ? (
-          <div className="mx-auto flex h-14 w-full max-w-none items-center gap-2 px-3 sm:gap-3 sm:px-4">
+          <div className="mx-auto flex h-16 w-full max-w-none items-center gap-2 px-3 sm:gap-3 sm:px-4">
             <div className="min-w-0 flex-1">{workspace.leading}</div>
             {workspace.beforeSystemControls ? (
               <div className="flex shrink-0 items-center gap-0.5">{workspace.beforeSystemControls}</div>
@@ -191,7 +191,7 @@ export function AppHeader({ workspace }: AppHeaderProps) {
             {systemControls}
           </div>
         ) : (
-          <div className="mx-auto grid h-14 w-full max-w-5xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4 sm:px-6">
+          <div className="mx-auto grid h-16 w-full max-w-5xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4 sm:px-6">
             <div className="flex min-w-0 items-center justify-self-start">{aiSettingsButton}</div>
             <button
               type="button"
