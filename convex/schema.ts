@@ -23,6 +23,7 @@ export default defineSchema({
     role: v.union(v.literal("owner"), v.literal("editor"), v.literal("commenter"), v.literal("viewer")),
     invitedBy: v.optional(v.id("users")),
     createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_userId", ["userId"])
     .index("by_deepDiveId", ["deepDiveId"])
@@ -58,11 +59,15 @@ export default defineSchema({
     deepDiveId: v.id("deepDives"),
     title: v.string(),
     type: v.union(v.literal("chat"), v.literal("vote"), v.literal("teamwork")),
-    messages: v.array(v.any()),
+    messages: v.optional(v.array(v.any())),
     voteResults: v.optional(v.array(v.any())),
     teamworkMessages: v.optional(v.array(v.any())),
     createdAt: v.number(),
     updatedAt: v.number(),
+    createdByUserId: v.optional(v.id("users")),
+    messageCount: v.optional(v.number()),
+    lastMessageAt: v.optional(v.number()),
+    lastMessagePreview: v.optional(v.string()),
   }).index("by_deepDiveId_updatedAt", ["deepDiveId", "updatedAt"]),
 
   uploads: defineTable({

@@ -94,8 +94,12 @@ function requireRole(role: DeepDiveRole | null, allowed: DeepDiveRole[]) {
 }
 
 function normalizeProviders(providers?: string[]) {
-  const next = (providers ?? []).filter(Boolean).filter((provider, index, items) => items.indexOf(provider) === index);
-  return (next.length ? next : [...PROVIDERS]) as AIProvider[];
+  const allowed = new Set<string>(PROVIDERS);
+  const next = (providers ?? [])
+    .filter((p): p is string => typeof p === "string" && p.length > 0)
+    .filter((p): p is AIProvider => allowed.has(p))
+    .filter((provider, index, items) => items.indexOf(provider) === index);
+  return next.length ? next : [...PROVIDERS];
 }
 
 function truncateTitle(value: string) {
