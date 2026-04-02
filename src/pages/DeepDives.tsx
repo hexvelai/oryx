@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowUp, Check, Clock3, MessageSquareText, Mic, MoreHorizontal, PencilLine, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
 import { AI_MODELS } from "@/types/ai";
-import type { AIProvider } from "@/types/ai";
+import type { AIModel, AIProvider } from "@/types/ai";
 import { convexApi } from "@/lib/convex-api";
 import { DEEP_DIVE_PROVIDERS, type DeepDiveUIMessage } from "@/lib/deep-dive-types";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -69,6 +69,12 @@ function lastMessagePreview(messages: DeepDiveUIMessage[]) {
   const last = messages[messages.length - 1];
   const text = last?.parts?.filter((p) => p.type === "text" || p.type === "reasoning").map((p) => p.text).join("\n") ?? "";
   return text.split("\n")[0]?.trim() || "No messages yet";
+}
+
+const MODEL_BY_ID = AI_MODELS as Record<string, AIModel>;
+function getModel(id: unknown) {
+  if (typeof id !== "string") return undefined;
+  return MODEL_BY_ID[id];
 }
 
 function CompanyLogo({ name, logoUrl }: { name: string; logoUrl: string }) {
@@ -349,9 +355,17 @@ export default function DeepDives() {
                 <div key={dive.id} className="group relative rounded-xl border border-border/40 bg-card transition-colors hover:border-border/70">
                   <button type="button" onClick={() => navigate(`/dive/${dive.id}`)} className="w-full px-4 py-4 text-left">
                     <div className="flex items-center gap-2">
-                      {dive.providers.map((p) => (
-                        <span key={p} className="h-2 w-2 rounded-full" title={AI_MODELS[p].name} style={{ backgroundColor: `hsl(var(--${AI_MODELS[p].color}))` }} />
-                      ))}
+                      {dive.providers.map((p) => {
+                        const model = getModel(p);
+                        return (
+                          <span
+                            key={p}
+                            className="h-2 w-2 rounded-full"
+                            title={model?.name ?? p}
+                            style={{ backgroundColor: model ? `hsl(var(--${model.color}))` : "hsl(var(--muted-foreground))" }}
+                          />
+                        );
+                      })}
                       <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{formatRelative(dive.updatedAt)}</span>
                     </div>
                     <h3 className="mt-3 truncate text-sm font-medium text-foreground">{dive.title}</h3>
@@ -472,7 +486,8 @@ export default function DeepDives() {
                       </p>
                       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {models.map((provider) => {
-                          const model = AI_MODELS[provider];
+                          const model = getModel(provider);
+                          if (!model) return null;
                           const selected = selectedProviders.includes(provider);
                           const selectable = providerSelectable(provider);
                           const dimmed = !selectable && !selected;

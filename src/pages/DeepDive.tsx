@@ -405,8 +405,11 @@ export default function DeepDive() {
   };
 
   const replyToMessage = (message: DeepDiveUIMessage) => {
-    const provider = message.metadata?.provider as AIProvider | undefined;
-    const providerName = provider ? AI_MODELS[provider].name : "AI";
+    const provider = message.metadata?.provider as unknown;
+    const providerName =
+      typeof provider === "string"
+        ? ((AI_MODELS as Record<string, { name: string }>)[provider]?.name ?? "AI")
+        : "AI";
     const full = getMessageText(message);
     const excerpt = full.length > 240 ? `${full.slice(0, 239)}…` : full;
     setThreadReplyTo({
@@ -417,8 +420,11 @@ export default function DeepDive() {
   };
 
   const replyInHumanChat = (message: DeepDiveUIMessage) => {
-    const provider = message.metadata?.provider as AIProvider | undefined;
-    const providerName = provider ? AI_MODELS[provider].name : "AI";
+    const provider = message.metadata?.provider as unknown;
+    const providerName =
+      typeof provider === "string"
+        ? ((AI_MODELS as Record<string, { name: string }>)[provider]?.name ?? "AI")
+        : "AI";
     const full = getMessageText(message);
     const excerpt = full.length > 240 ? `${full.slice(0, 239)}…` : full;
     setHumanReplyTo({
