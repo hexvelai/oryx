@@ -153,18 +153,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [activeProviders, setActiveProviders] = useState<AIProvider[]>(availableProviders.length ? availableProviders : [fallbackProvider]);
   const [parallelTargets, setParallelTargets] = useState<AIProvider[]>(availableProviders.length ? availableProviders : [fallbackProvider]);
 
-  // Sync active deep dive and threads when list changes
+  // Sync active deep dive and threads when list changes (avoid setState every run — new object refs caused max update depth)
   useEffect(() => {
-    if (convexDeepDives.length > 0 && !activeDeepDiveId) {
-      setActiveDeepDiveId(convexDeepDives[0].id);
-    }
-    const nextThreadMap: Record<string, string> = { ...activeThreadIdByDeepDive };
-    convexDeepDives.forEach(d => {
-      if (!nextThreadMap[d.id]) {
-        nextThreadMap[d.id] = d.threads[0]?.id ?? "";
-      }
+    setActiveDeepDiveId((current) => {
+      if (convexDeepDives.length > 0 && !current) return convexDeepDives[0].id;
+      return current;
     });
-    setActiveThreadIdByDeepDive(nextThreadMap);
+    setActiveThreadIdByDeepDive((prev) => {
+      let next: Record<string, string> | null = null;
+      for (const d of convexDeepDives) {
+        const tid = d.threads[0]?.id ?? "";
+        if (tid && !prev[d.id]) {
+          if (!next) next = { ...prev };
+          next[d.id] = tid;
+        }
+      }
+      return next ?? prev;
+    });
   }, [convexDeepDives]);
 
   const createDeepDive = useCallback(async (init?: { title?: string; providers?: AIProvider[] }) => {

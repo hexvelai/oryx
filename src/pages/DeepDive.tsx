@@ -443,7 +443,8 @@ export default function DeepDive() {
       return acc;
     }, {});
 
-  const participantOrder = deepDive.providers.length ? deepDive.providers : [...DEEP_DIVE_PROVIDERS];
+  const knownProjectProviders = deepDive.providers.filter((p): p is AIProvider => p in AI_MODELS);
+  const participantOrder = knownProjectProviders.length ? knownProjectProviders : [...DEEP_DIVE_PROVIDERS];
   const defaultOther = (provider?: AIProvider) => {
     if (!provider) return participantOrder[0] ?? "nemotron";
     const idx = participantOrder.indexOf(provider);
@@ -553,7 +554,7 @@ export default function DeepDive() {
           runVote({
             threadId: String(threadId),
             prompt: subject,
-            participants: deepDive.providers,
+            participants: participantOrder,
             mode: councilMode,
           }),
           new Promise((_, reject) => {
@@ -734,7 +735,7 @@ export default function DeepDive() {
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">{activeThread?.title ?? "Thread"}</p>
               </div>
               <div className="hidden shrink-0 items-center gap-1 lg:flex">
-                {deepDive.providers.map((provider) => (
+                {participantOrder.map((provider) => (
                   <span
                     key={provider}
                     className="h-2 w-2 rounded-full"

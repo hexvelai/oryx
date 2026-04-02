@@ -110,7 +110,8 @@ function normalizeProviders(providers?: string[]) {
     .filter(Boolean)
     .map((provider) => {
       if (allowed.has(provider)) return provider;
-      if (provider === "claude") return "nemotron";
+      if (provider === "claude" || provider === "gpt") return "nemotron";
+      if (provider === "gemini") return "gemini-2-flash";
       return null;
     })
     .filter((provider): provider is string => Boolean(provider))
@@ -138,7 +139,8 @@ function normalizeProviderId(provider: unknown): AIProvider | undefined {
   if (typeof provider !== "string") return undefined;
   const raw = provider.trim();
   if (!raw) return undefined;
-  if (raw === "claude") return "nemotron";
+  if (raw === "claude" || raw === "gpt") return "nemotron";
+  if (raw === "gemini") return "gemini-2-flash";
   if ((PROVIDERS as readonly string[]).includes(raw)) return raw as AIProvider;
   return undefined;
 }
