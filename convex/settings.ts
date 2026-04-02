@@ -13,6 +13,21 @@ function lastFour(value: string) {
   return normalized ? normalized.slice(-4) : null;
 }
 
+function readStoredKeyArray(value: string): unknown[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function getStoredKeyId(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const id = (value as Record<string, unknown>).id;
+  return typeof id === "string" && id ? id : null;
+}
+
 export const get = query({
   args: {},
   handler: async (ctx) => {
@@ -93,14 +108,7 @@ export const addApiKey = mutation({
       .unique();
 
     const now = Date.now();
-    const current = (() => {
-      try {
-        const parsed = JSON.parse(existing?.value ?? "[]") as unknown;
-        return Array.isArray(parsed) ? (parsed as any[]) : [];
-      } catch {
-        return [];
-      }
-    })();
+    const current = readStoredKeyArray(existing?.value ?? "[]");
 
     const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${now}-${Math.random().toString(16).slice(2)}`;
     const entry = {
@@ -144,15 +152,8 @@ export const deleteApiKey = mutation({
       .unique();
     if (!existing) return;
     const now = Date.now();
-    const current = (() => {
-      try {
-        const parsed = JSON.parse(existing.value ?? "[]") as unknown;
-        return Array.isArray(parsed) ? (parsed as any[]) : [];
-      } catch {
-        return [];
-      }
-    })();
-    const next = current.filter((x) => (x as any)?.id !== id);
+    const current = readStoredKeyArray(existing.value ?? "[]");
+    const next = current.filter((x) => getStoredKeyId(x) !== id);
     await ctx.db.patch(existing._id, { value: JSON.stringify(next), updatedAt: now });
   },
 });

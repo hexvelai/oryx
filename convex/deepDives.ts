@@ -145,21 +145,22 @@ function normalizeProviderId(provider: unknown): AIProvider | undefined {
 
 function rowToThreadMessage(row: Doc<"threadMessages">): DeepDiveUIMessage | null {
   if (row.message) return row.message as DeepDiveUIMessage;
-  const text = typeof (row as any).text === "string" ? ((row as any).text as string) : "";
-  const role = typeof (row as any).role === "string" ? ((row as any).role as string) : "assistant";
+  const extra = row as unknown as Record<string, unknown>;
+  const text = typeof extra.text === "string" ? extra.text : "";
+  const role = typeof extra.role === "string" ? extra.role : "assistant";
   const createdAt = row.createdAt;
   if (!text.trim()) return null;
-  const authorUserId = typeof (row as any).authorUserId === "string" ? ((row as any).authorUserId as string) : undefined;
-  const authorName = typeof (row as any).authorName === "string" ? ((row as any).authorName as string) : undefined;
-  const authorEmail = typeof (row as any).authorEmail === "string" ? ((row as any).authorEmail as string) : undefined;
-  const authorImage = typeof (row as any).authorImage === "string" ? ((row as any).authorImage as string) : undefined;
+  const authorUserId = typeof extra.authorUserId === "string" ? extra.authorUserId : undefined;
+  const authorName = typeof extra.authorName === "string" ? extra.authorName : undefined;
+  const authorEmail = typeof extra.authorEmail === "string" ? extra.authorEmail : undefined;
+  const authorImage = typeof extra.authorImage === "string" ? extra.authorImage : undefined;
   return {
     id: (row.messageId ?? `${row._id}`) as string,
     role: role === "user" || role === "system" || role === "assistant" ? role : "assistant",
     metadata: {
       createdAt,
-      provider: normalizeProviderId((row as any).provider),
-      model: typeof (row as any).model === "string" ? ((row as any).model as string) : undefined,
+      provider: normalizeProviderId(extra.provider),
+      model: typeof extra.model === "string" ? extra.model : undefined,
       author: authorUserId
         ? {
             userId: authorUserId,

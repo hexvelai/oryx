@@ -15,6 +15,19 @@ import { convexApi } from "@/lib/convex-api";
 import { AI_MODELS } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
 
+type StoredApiKey = {
+  id: string;
+  provider: string;
+  name: string;
+  lastFour?: string | null;
+  createdAt?: number;
+};
+
+type AppSettingsRecord = {
+  openRouter?: { configured?: boolean; source?: string; lastFour?: string | null };
+  apiKeys?: StoredApiKey[];
+};
+
 export type AppHeaderWorkspaceProps = {
   leading: ReactNode;
   beforeSystemControls?: ReactNode;
@@ -57,7 +70,7 @@ export function AppHeader({ workspace }: AppHeaderProps) {
     setMounted(true);
   }, []);
 
-  const appSettings = useConvexQuery(convexApi.settings.get, {});
+  const appSettings = useConvexQuery(convexApi.settings.get, {}) as AppSettingsRecord | undefined;
   const saveOpenRouterKey = useConvexMutation(convexApi.settings.setOpenRouterKey);
   const clearOpenRouterKey = useConvexMutation(convexApi.settings.clearOpenRouterKey);
 
@@ -287,7 +300,7 @@ export function AppHeader({ workspace }: AppHeaderProps) {
                     {(appSettings?.apiKeys ?? []).length === 0 ? (
                       <p className="text-sm text-muted-foreground">No keys saved yet.</p>
                     ) : (
-                      (appSettings?.apiKeys ?? []).map((k: any) => (
+                      (appSettings?.apiKeys ?? []).map((k) => (
                         <div key={k.id} className="flex items-center justify-between rounded-lg border border-border/40 px-3 py-2">
                           <div className="min-w-0">
                             <p className="truncate text-sm text-foreground">{k.name}</p>

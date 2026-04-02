@@ -19,6 +19,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 type KeyProvider = "openrouter" | "gemini" | "openai" | "claude";
 type ModelTab = "favorites" | KeyProvider;
+type StoredApiKey = {
+  id: string;
+  provider: string;
+  name: string;
+  lastFour?: string | null;
+  createdAt?: number;
+};
+type AppSettingsRecord = {
+  openRouter?: { configured?: boolean; source?: string; lastFour?: string | null };
+  apiKeys?: StoredApiKey[];
+};
 
 const COMPANIES: Array<{
   id: KeyProvider;
@@ -82,7 +93,7 @@ export default function DeepDives() {
   const updateDeepDiveTitle = useConvexMutation(convexApi.deepDives.updateDeepDiveTitle);
   const deleteDeepDive = useConvexMutation(convexApi.deepDives.deleteDeepDive);
   const availableProviders = DEEP_DIVE_PROVIDERS;
-  const appSettings = useConvexQuery(convexApi.settings.get, {});
+  const appSettings = useConvexQuery(convexApi.settings.get, {}) as AppSettingsRecord | undefined;
   const addApiKey = useConvexMutation(convexApi.settings.addApiKey);
   const deleteApiKey = useConvexMutation(convexApi.settings.deleteApiKey);
 
@@ -167,11 +178,11 @@ export default function DeepDives() {
     }
   };
 
-  const keys = (appSettings as any)?.apiKeys ?? [];
-  const openRouterConfigured = Boolean((appSettings as any)?.openRouter?.configured) || keys.some((k: any) => k.provider === "openrouter");
+  const keys = appSettings?.apiKeys ?? [];
+  const openRouterConfigured = Boolean(appSettings?.openRouter?.configured) || keys.some((k) => k.provider === "openrouter");
   const companyHasKey = (id: KeyProvider) => {
     if (id === "openrouter") return openRouterConfigured;
-    return keys.some((k: any) => k.provider === id);
+    return keys.some((k) => k.provider === id);
   };
   const anyKeys = keys.length > 0 || openRouterConfigured;
   const companyForModel = (provider: AIProvider): KeyProvider => {
@@ -185,7 +196,7 @@ export default function DeepDives() {
     return false;
   };
   const selectedSelectableProviders = selectedProviders.filter(providerSelectable);
-  const canCreate = selectedSelectableProviders.length > 0;
+  const canCreate = selectedProviders.length > 0;
 
   const favoriteGroups: Array<{ label: string; tag: "fast" | "cheap" | "thinking" }> = [
     { label: "Fast", tag: "fast" },
@@ -196,6 +207,42 @@ export default function DeepDives() {
     activeCompany === "favorites"
       ? favoriteGroups
       : ([{ label: "Models", tag: "fast" as const }]);
+
+  const toggleProvider = (provider: AIProvider) => {
+    setSelectedProviders((prev) => {
+      if (prev.includes(provider)) {
+        return prev.filter((p) => p !== provider);
+      }
+      const next = new Set<AIProvider>([...prev, provider]);
+      return availableProviders.filter((p) => next.has(p));
+    });
+  };
+
+  const createProject = async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const deepDiveId = await createDeepDive({
+        title: projectTitle.trim() ? projectTitle.trim() : undefined,
+        providers: selectedProviders,
+      });
+      onClose(false);
+      navigate(`/dive/${deepDiveId}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openNewFromHero = async () => {
+    const prompt = heroQuery.trim();
+    if (!prompt) {
+      onNew();
+      return;
+    }
+    setHeroQuery("");
+    setProjectTitle(prompt);
+    setOpen(true);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -406,7 +453,7 @@ export default function DeepDives() {
                   </p>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {selectedSelectableProviders.length} active
+                  {selectedProviders.length} active
                 </div>
               </div>
 
@@ -428,16 +475,16 @@ export default function DeepDives() {
                           const model = AI_MODELS[provider];
                           const selected = selectedProviders.includes(provider);
                           const selectable = providerSelectable(provider);
-                          const canToggle = selected || selectable;
+                          const dimmed = !selectable && !selected;
                           return (
                             <button
                               key={provider}
                               type="button"
-                              onClick={() => (canToggle ? toggleProvider(provider) : null)}
+                              onClick={() => toggleProvider(provider)}
                               className={[
                                 "group flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
                                 selected ? "border-primary/30 bg-primary/[0.04]" : "border-border/40 hover:bg-accent/40",
-                                canToggle ? "" : "opacity-50 cursor-not-allowed",
+                                dimmed ? "opacity-50" : "",
                               ].join(" ")}
                             >
                               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
@@ -513,7 +560,7 @@ export default function DeepDives() {
                   {keys.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No keys saved yet.</p>
                   ) : (
-                    keys.map((k: any) => (
+                    keys.map((k) => (
                       <div key={k.id} className="flex items-center justify-between rounded-lg border border-border/40 px-3 py-2">
                         <div className="min-w-0">
                           <p className="truncate text-sm text-foreground">{k.name}</p>
