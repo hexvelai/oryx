@@ -59,7 +59,7 @@ export function useChatContext() {
   return ctx;
 }
 
-const ALL_PROVIDERS: AIProvider[] = ["gpt", "gemini", "claude"];
+const ALL_PROVIDERS = Object.keys(AI_MODELS) as AIProvider[];
 const PROVIDER_CONFIG_KEY = "oryx.providerConfig";
 
 type ProviderConfig = {
@@ -68,8 +68,9 @@ type ProviderConfig = {
 };
 
 function loadProviderConfig(): ProviderConfig {
+  const enabledDefault = Object.fromEntries(ALL_PROVIDERS.map((provider) => [provider, true])) as ProviderConfig["enabled"];
   const fallback: ProviderConfig = {
-    enabled: { gpt: true, gemini: true, claude: true },
+    enabled: enabledDefault,
     apiKeys: {},
   };
   try {
@@ -148,8 +149,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [activeThreadIdByDeepDive, setActiveThreadIdByDeepDive] = useState<Record<string, string>>({});
 
   const availableProviders = ALL_PROVIDERS.filter(p => providerConfig.enabled[p] !== false);
-  const [activeProviders, setActiveProviders] = useState<AIProvider[]>(availableProviders.length ? availableProviders : ["gpt"]);
-  const [parallelTargets, setParallelTargets] = useState<AIProvider[]>(availableProviders.length ? availableProviders : ["gpt"]);
+  const fallbackProvider = availableProviders[0] ?? ALL_PROVIDERS[0] ?? "nemotron";
+  const [activeProviders, setActiveProviders] = useState<AIProvider[]>(availableProviders.length ? availableProviders : [fallbackProvider]);
+  const [parallelTargets, setParallelTargets] = useState<AIProvider[]>(availableProviders.length ? availableProviders : [fallbackProvider]);
 
   // Sync active deep dive and threads when list changes
   useEffect(() => {
@@ -230,9 +232,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           const role = (m.role === "assistant" || m.role === "user" ? m.role : "assistant") as ChatMessage["role"];
           const content = toText(m.parts);
           const timestamp = typeof m.metadata?.createdAt === "number" ? m.metadata.createdAt : Date.now();
-          const provider = (m.metadata?.provider === "gpt" || m.metadata?.provider === "gemini" || m.metadata?.provider === "claude")
-            ? (m.metadata.provider as AIProvider)
-            : undefined;
+          const provider =
+            typeof m.metadata?.provider === "string" && ALL_PROVIDERS.includes(m.metadata.provider as AIProvider)
+              ? (m.metadata.provider as AIProvider)
+              : undefined;
           return {
             id,
             role,
@@ -279,8 +282,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     sendParallelMessage: () => {},
     startTeamwork: () => {},
     startVoting: () => {},
-    providerSessions: { gpt: [], gemini: [], claude: [] },
-    activeProviderSessionId: { gpt: "", gemini: "", claude: "" },
+    providerSessions: Object.fromEntries(ALL_PROVIDERS.map((provider) => [provider, [] as ChatSession[]])) as Record<
+      AIProvider,
+      ChatSession[]
+    >,
+    activeProviderSessionId: Object.fromEntries(ALL_PROVIDERS.map((provider) => [provider, ""])) as Record<AIProvider, string>,
     setActiveProviderSession: () => {},
     createProviderSession: () => {},
     masterSessions: [],
@@ -288,7 +294,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setActiveMasterSession: () => {},
     createMasterSession: () => {},
     getProviderMessages: () => [],
-    providerIsTyping: { gpt: false, gemini: false, claude: false },
+    providerIsTyping: Object.fromEntries(ALL_PROVIDERS.map((provider) => [provider, false])) as Record<AIProvider, boolean>,
     deepDives,
     activeDeepDiveId,
     setActiveDeepDive: setActiveDeepDiveId,

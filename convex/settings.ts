@@ -3,6 +3,7 @@ import { v } from "convex/values";
 
 const OPENROUTER_KEY = "openrouter_api_key";
 const GEMINI_KEY = "gemini_api_key";
+const API_KEYS_V1 = "api_keys_v1";
 const query = queryGeneric;
 const mutation = mutationGeneric;
 const internalQuery = internalQueryGeneric;
@@ -27,6 +28,32 @@ export const get = query({
 
     const openRouterValue = openRouterRecord?.value?.trim() || "";
     const geminiValue = geminiRecord?.value?.trim() || "";
+
+    const apiKeysRecord = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", API_KEYS_V1))
+      .unique();
+    const apiKeysRaw = apiKeysRecord?.value ?? "[]";
+    const apiKeys = (() => {
+      try {
+        const parsed = JSON.parse(apiKeysRaw) as unknown;
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+          .filter((x) => x && typeof x === "object")
+          .map((x) => x as Record<string, unknown>)
+          .map((x) => ({
+            id: typeof x.id === "string" ? x.id : "",
+            provider: typeof x.provider === "string" ? x.provider : "openrouter",
+            name: typeof x.name === "string" ? x.name : "Key",
+            lastFour: typeof x.lastFour === "string" ? x.lastFour : null,
+            createdAt: typeof x.createdAt === "number" ? x.createdAt : Date.now(),
+          }))
+          .filter((x) => Boolean(x.id));
+      } catch {
+        return [];
+      }
+    })();
+
     return {
       openRouter: {
         configured: Boolean(openRouterValue),
@@ -38,7 +65,95 @@ export const get = query({
         source: geminiValue ? "frontend" : "missing",
         lastFour: lastFour(geminiValue),
       },
+      apiKeys,
     };
+  },
+});
+
+export const addApiKey = mutation({
+  args: {
+    provider: v.union(
+      v.literal("openrouter"),
+      v.literal("gemini"),
+      v.literal("openai"),
+      v.literal("claude"),
+    ),
+    name: v.string(),
+    apiKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const provider = args.provider;
+    const name = args.name.replace(/\s+/g, " ").trim() || "Key";
+    const apiKey = args.apiKey.trim();
+    if (!apiKey) throw new Error("API key is required");
+
+    const existing = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", API_KEYS_V1))
+      .unique();
+
+    const now = Date.now();
+    const current = (() => {
+      try {
+        const parsed = JSON.parse(existing?.value ?? "[]") as unknown;
+        return Array.isArray(parsed) ? (parsed as any[]) : [];
+      } catch {
+        return [];
+      }
+    })();
+
+    const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${now}-${Math.random().toString(16).slice(2)}`;
+    const entry = {
+      id,
+      provider,
+      name,
+      apiKey,
+      lastFour: lastFour(apiKey),
+      createdAt: now,
+    };
+
+    const next = JSON.stringify([entry, ...current].slice(0, 25));
+    if (existing) {
+      await ctx.db.patch(existing._id, { value: next, updatedAt: now });
+    } else {
+      await ctx.db.insert("appSettings", { key: API_KEYS_V1, value: next, updatedAt: now });
+    }
+
+    // Keep legacy single-key fields in sync for existing backend code paths.
+    if (provider === "openrouter") {
+      const old = await ctx.db.query("appSettings").withIndex("by_key", (q) => q.eq("key", OPENROUTER_KEY)).unique();
+      if (old) await ctx.db.patch(old._id, { value: apiKey, updatedAt: now });
+      else await ctx.db.insert("appSettings", { key: OPENROUTER_KEY, value: apiKey, updatedAt: now });
+    }
+    if (provider === "gemini") {
+      const old = await ctx.db.query("appSettings").withIndex("by_key", (q) => q.eq("key", GEMINI_KEY)).unique();
+      if (old) await ctx.db.patch(old._id, { value: apiKey, updatedAt: now });
+      else await ctx.db.insert("appSettings", { key: GEMINI_KEY, value: apiKey, updatedAt: now });
+    }
+  },
+});
+
+export const deleteApiKey = mutation({
+  args: { id: v.string() },
+  handler: async (ctx, args) => {
+    const id = args.id.trim();
+    if (!id) return;
+    const existing = await ctx.db
+      .query("appSettings")
+      .withIndex("by_key", (q) => q.eq("key", API_KEYS_V1))
+      .unique();
+    if (!existing) return;
+    const now = Date.now();
+    const current = (() => {
+      try {
+        const parsed = JSON.parse(existing.value ?? "[]") as unknown;
+        return Array.isArray(parsed) ? (parsed as any[]) : [];
+      } catch {
+        return [];
+      }
+    })();
+    const next = current.filter((x) => (x as any)?.id !== id);
+    await ctx.db.patch(existing._id, { value: JSON.stringify(next), updatedAt: now });
   },
 });
 

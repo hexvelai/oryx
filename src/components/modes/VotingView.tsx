@@ -16,14 +16,15 @@ export function VotingView() {
   const { voteResults, sharedContext, forkThreadFromMessages, sendDeepDiveMessage, runVoteInThread, runDebateInThread, activeProviders } = useChatContext();
   const [askDialog, setAskDialog] = useState<{ open: boolean; target: AIProvider; seed: ChatMessage[] } | null>(null);
   const [debateDialog, setDebateDialog] = useState<{ open: boolean; seed: ChatMessage[] } | null>(null);
-  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(["gpt", "gemini", "claude"]);
+  const allProviders = Object.keys(AI_MODELS) as AIProvider[];
+  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(allProviders);
 
   const winner = voteResults.length > 0
     ? [...voteResults].sort((a, b) => b.votes.length - a.votes.length)[0]
     : null;
 
   const defaultOther = (provider: AIProvider) => {
-    const order: AIProvider[] = ["gpt", "gemini", "claude"];
+    const order = allProviders;
     return order[(order.indexOf(provider) + 1) % order.length];
   };
 
@@ -56,7 +57,7 @@ export function VotingView() {
   };
 
   const openDebate = (seed: ChatMessage[]) => {
-    setDebateParticipants(activeProviders.length ? activeProviders : (["gpt", "gemini", "claude"] as AIProvider[]));
+    setDebateParticipants(activeProviders.length ? activeProviders : allProviders);
     setDebateDialog({ open: true, seed });
   };
 
@@ -67,7 +68,7 @@ export function VotingView() {
   const confirmDebate = () => {
     if (!debateDialog) return;
     const subject = debateDialog.seed[debateDialog.seed.length - 1]?.content.split("\n")[0]?.trim() ?? "";
-    const participants = debateParticipants.length ? debateParticipants : (["gpt", "gemini", "claude"] as AIProvider[]);
+    const participants = debateParticipants.length ? debateParticipants : allProviders;
     const { deepDiveId, threadId } = forkThreadFromMessages({ type: "teamwork", title: `Debate: ${subject.slice(0, 60)}`, seedMessages: debateDialog.seed });
     setDebateDialog(null);
     navigateToDive(deepDiveId);

@@ -17,12 +17,13 @@ export function TeamworkView() {
   const { teamworkMessages, masterMessages, sharedContext, forkThreadFromMessages, sendDeepDiveMessage, runVoteInThread, runDebateInThread, activeProviders } = useChatContext();
   const [askDialog, setAskDialog] = useState<{ open: boolean; target: AIProvider; seed: ChatMessage[] } | null>(null);
   const [debateDialog, setDebateDialog] = useState<{ open: boolean; seed: ChatMessage[] } | null>(null);
-  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(["gpt", "gemini", "claude"]);
+  const allProviders = Object.keys(AI_MODELS) as AIProvider[];
+  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(allProviders);
 
   const finalMsg = masterMessages.find(m => m.provider === "master" && m.content.includes("Team Consensus"));
 
   const defaultOther = (provider: AIProvider) => {
-    const order: AIProvider[] = ["gpt", "gemini", "claude"];
+    const order = allProviders;
     return order[(order.indexOf(provider) + 1) % order.length];
   };
 
@@ -54,7 +55,7 @@ export function TeamworkView() {
   };
 
   const openDebate = (seed: ChatMessage[]) => {
-    setDebateParticipants(activeProviders.length ? activeProviders : (["gpt", "gemini", "claude"] as AIProvider[]));
+    setDebateParticipants(activeProviders.length ? activeProviders : allProviders);
     setDebateDialog({ open: true, seed });
   };
 
@@ -65,7 +66,7 @@ export function TeamworkView() {
   const confirmDebate = () => {
     if (!debateDialog) return;
     const subject = debateDialog.seed[debateDialog.seed.length - 1]?.content.split("\n")[0]?.trim() ?? "";
-    const participants = debateParticipants.length ? debateParticipants : (["gpt", "gemini", "claude"] as AIProvider[]);
+    const participants = debateParticipants.length ? debateParticipants : allProviders;
     const { deepDiveId, threadId } = forkThreadFromMessages({ type: "teamwork", title: `Debate: ${subject.slice(0, 60)}`, seedMessages: debateDialog.seed });
     setDebateDialog(null);
     navigateToDive(deepDiveId);
@@ -181,10 +182,10 @@ export function TeamworkView() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => openAsk("gpt", [...sharedContext, finalMsg])}
+                  onClick={() => openAsk(allProviders[0] ?? "nemotron", [...sharedContext, finalMsg])}
                   className="w-full justify-start"
                 >
-                  Ask {AI_MODELS[defaultOther("gpt")].name}
+                  Ask {AI_MODELS[defaultOther(allProviders[0] ?? "nemotron")].name}
                 </Button>
                 <Button
                   variant="ghost"

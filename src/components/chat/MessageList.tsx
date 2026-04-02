@@ -26,20 +26,22 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
   const { forkThreadFromMessages, sendDeepDiveMessage, runVoteInThread, runDebateInThread, activeProviders, availableProviders } = useChatContext();
 
   const [askDialog, setAskDialog] = useState<{ open: boolean; msgIndex: number } | null>(null);
-  const [askTarget, setAskTarget] = useState<AIProvider>(availableProviders[0] ?? "gpt");
+  const [askTarget, setAskTarget] = useState<AIProvider>(availableProviders[0] ?? "nemotron");
   const [debateDialog, setDebateDialog] = useState<{ open: boolean; msgIndex: number } | null>(null);
-  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(availableProviders.length ? availableProviders : ["gpt"]);
+  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(
+    availableProviders.length ? availableProviders : ((Object.keys(AI_MODELS) as AIProvider[]).slice(0, 1) || ["nemotron"]),
+  );
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
   const defaultOther = (provider?: AIProvider) => {
-    const order = availableProviders.length ? availableProviders : (["gpt", "gemini", "claude"] as AIProvider[]);
-    if (!provider) return order[0] ?? "gpt";
+    const order = availableProviders.length ? availableProviders : (Object.keys(AI_MODELS) as AIProvider[]);
+    if (!provider) return order[0] ?? "nemotron";
     const idx = order.indexOf(provider);
-    if (idx === -1) return order[0] ?? "gpt";
-    return order[(idx + 1) % order.length] ?? (order[0] ?? "gpt");
+    if (idx === -1) return order[0] ?? "nemotron";
+    return order[(idx + 1) % order.length] ?? (order[0] ?? "nemotron");
   };
 
   useEffect(() => {
@@ -74,8 +76,7 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
     });
     setAskDialog(null);
     navigateToDive(deepDiveId);
-    const mention = askTarget === "gemini" ? "llama" : askTarget === "claude" ? "nemotron" : "gpt";
-    sendDeepDiveMessage(deepDiveId, threadId, `@${mention} Please respond to the context above.`);
+    sendDeepDiveMessage(deepDiveId, threadId, `@${askTarget} Please respond to the context above.`);
   };
 
   const onVote = (idx: number) => {
@@ -91,7 +92,7 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
   };
 
   const onDebate = (idx: number) => {
-    setDebateParticipants(activeProviders.length ? activeProviders : (["gpt", "gemini", "claude"] as AIProvider[]));
+    setDebateParticipants(activeProviders.length ? activeProviders : availableProviders);
     setDebateDialog({ open: true, msgIndex: idx });
   };
 
@@ -103,7 +104,7 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
     if (!debateDialog) return;
     const seedMessages = seedUpTo(debateDialog.msgIndex);
     const subject = (seedMessages[seedMessages.length - 1]?.content ?? "").split("\n")[0]?.trim() ?? "";
-    const participants = debateParticipants.length ? debateParticipants : (["gpt", "gemini", "claude"] as AIProvider[]);
+    const participants = debateParticipants.length ? debateParticipants : availableProviders;
     const { deepDiveId, threadId } = forkThreadFromMessages({
       type: "teamwork",
       title: `Debate: ${subject.slice(0, 60)}`,

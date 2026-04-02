@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -63,16 +63,22 @@ interface ThreadChatPanelProps {
   onReplyInHumanChat?: (msg: DeepDiveUIMessage) => void;
   replyTo?: { messageId: string; label: string } | null;
   onCancelReply?: () => void;
+  votePrompt?: { visible: boolean; text: string; onCallVote: () => void; onDismiss: () => void };
 }
 
 export function ThreadChatPanel({
   thread, onAskOther, onVote, onDebate, onSend, isSending, errorMessage, defaultOther,
   canSend = true, canUseTools = true, onReplyToMessage, onReplyInHumanChat, replyTo, onCancelReply,
+  votePrompt,
 }: ThreadChatPanelProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
-  const visible = thread.messages.filter(hasRenderableParts);
+  const seenAssistantIdsRef = useRef<Set<string>>(new Set());
+  const animationFrameRef = useRef<number | null>(null);
+  const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
+  const [animatedText, setAnimatedText] = useState("");
+  const visible = useMemo(() => thread.messages.filter(hasRenderableParts), [thread.messages]);
 
   useEffect(() => {
     const el = scrollerRef.current;
@@ -88,7 +94,57 @@ export function ThreadChatPanel({
   useLayoutEffect(() => {
     if (!stickRef.current) return;
     requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
-  }, [lastId, isSending]);
+  }, [lastId, isSending, animatingMessageId, animatedText]);
+
+  useEffect(() => {
+    const assistants = visible.filter((message) => message.role === "assistant");
+    if (seenAssistantIdsRef.current.size === 0) {
+      assistants.forEach((message) => seenAssistantIdsRef.current.add(message.id));
+      return;
+    }
+    if (animatingMessageId) return;
+
+    const next = [...assistants].reverse().find((message) => !seenAssistantIdsRef.current.has(message.id));
+    if (!next) return;
+
+    const fullText = getMessageText(next);
+    seenAssistantIdsRef.current.add(next.id);
+    if (!fullText) return;
+
+    setAnimatingMessageId(next.id);
+    setAnimatedText("");
+
+    const totalChars = fullText.length;
+    const charsPerSecond = 55;
+    const durationMs = Math.max(450, Math.min(5000, Math.round((totalChars / charsPerSecond) * 1000)));
+    const startedAt = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = now - startedAt;
+      const progress = Math.min(1, elapsed / durationMs);
+      const nextChars = Math.max(1, Math.floor(totalChars * progress));
+      setAnimatedText(fullText.slice(0, nextChars));
+      if (progress >= 1) {
+        setAnimatingMessageId(null);
+        setAnimatedText("");
+        animationFrameRef.current = null;
+        return;
+      }
+      animationFrameRef.current = requestAnimationFrame(tick);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(tick);
+  }, [visible, animatingMessageId]);
+
+  useEffect(
+    () => () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    },
+    [],
+  );
 
   const jump = (id: string) => {
     const el = document.getElementById(`thread-msg-${id}`);
@@ -106,7 +162,7 @@ export function ThreadChatPanel({
             {visible.length === 0 && (
               <div className="pt-16 pb-8 text-center animate-fade-up">
                 <p className="text-sm text-muted-foreground">Start typing to begin a conversation.</p>
-                <p className="mt-1 text-xs text-muted-foreground/60">Use @gpt, @gemini, or @claude to route to a model.</p>
+                <p className="mt-1 text-xs text-muted-foreground/60">Use @nemotron, @dolphin, @qwen-coder, @glm-air, @trinity-mini, or @qwen-plus to route to a model.</p>
               </div>
             )}
 
@@ -115,6 +171,7 @@ export function ThreadChatPanel({
               const provider = message.metadata?.provider as AIProvider | undefined;
               const model = provider ? AI_MODELS[provider] : null;
               const text = getMessageText(message);
+              const displayedText = animatingMessageId === message.id ? animatedText : text;
               const showActions = !isUser && (canUseTools || Boolean(onReplyToMessage) || Boolean(onReplyInHumanChat));
               const author = message.metadata?.author;
               const authorLabel = author ? (author.name || author.email || "Member").toString() : null;
@@ -176,7 +233,10 @@ export function ThreadChatPanel({
                     ) : (
                       <div className="chat-bubble-ai pl-3.5" style={{ "--bubble-accent": modelColor } as React.CSSProperties}>
                         <div className="text-[14px] leading-[1.75] text-foreground break-words text-pretty [&_h1]:mb-2 [&_h1]:mt-5 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:text-sm [&_h3]:font-medium [&_hr]:my-4 [&_hr]:border-border/40">
-                          {renderMarkdown(text)}
+                          {renderMarkdown(displayedText)}
+                          {animatingMessageId === message.id && (
+                            <span className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[1px] animate-pulse bg-foreground/50 align-middle" />
+                          )}
                         </div>
                       </div>
                     )}
@@ -203,6 +263,21 @@ export function ThreadChatPanel({
 
       <div className="border-t border-border/40 px-4 py-3 sm:px-6">
         <div className="mx-auto max-w-[44rem]">
+          {votePrompt?.visible && (
+            <div className="mb-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-foreground">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate">{votePrompt.text}</span>
+                <div className="flex items-center gap-1.5">
+                  <Button type="button" size="sm" className="h-7 px-2 text-xs" onClick={votePrompt.onCallVote}>
+                    Call vote
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={votePrompt.onDismiss}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
           <ChatInput
             onSend={onSend}
             placeholder="Message..."
