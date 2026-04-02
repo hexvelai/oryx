@@ -1,10 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-<<<<<<< HEAD
-import { Check, Clock3, MessageSquareText, MoreHorizontal, PencilLine, Plus, Sparkles, Trash2 } from "lucide-react";
-=======
-import { ArrowUp, Clock3, MessageSquareText, Mic, MoreHorizontal, PencilLine, Plus, Trash2 } from "lucide-react";
->>>>>>> 6520d3ba38a53b198b4eca70b45eeec609bab1cc
+import { ArrowUp, Check, Clock3, MessageSquareText, Mic, MoreHorizontal, PencilLine, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
 import { AI_MODELS } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
@@ -111,7 +107,6 @@ export default function DeepDives() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [heroQuery, setHeroQuery] = useState("");
 
-<<<<<<< HEAD
   const onNew = () => {
     setOpen(true);
     setProjectTitle("");
@@ -119,52 +114,58 @@ export default function DeepDives() {
     setActiveCompany("favorites");
     setKeyError(null);
   };
-=======
-  const onNew = () => { setOpen(true); setProjectTitle(""); setSelectedProviders(availableProviders.length ? availableProviders : ["gpt"]); };
->>>>>>> 6520d3ba38a53b198b4eca70b45eeec609bab1cc
   const onClose = (v: boolean) => {
     setOpen(v);
     if (!v) {
       setProjectTitle("");
-<<<<<<< HEAD
+      setHeroQuery("");
       setSelectedProviders(availableProviders.length ? availableProviders : [fallbackProvider]);
+      setActiveCompany("favorites");
       setKeyError(null);
     }
   };
-  const toggleProvider = (p: AIProvider) =>
-    setSelectedProviders((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
-  const createProject = async () => {
-    if (!canCreate) return;
-    setCreating(true);
-    try {
-      const id = await createDeepDive({
-        providers: selectedSelectableProviders,
-        title: projectTitle.trim() || "New Project",
-      });
-      onClose(false);
-      navigate(`/dive/${id}`);
-    } finally {
-      setCreating(false);
-    }
-  };
-=======
-      setHeroQuery("");
-      setSelectedProviders(availableProviders.length ? availableProviders : ["gpt"]);
-    }
-  };
 
-  const openNewFromHero = () => {
-    setProjectTitle(heroQuery.trim());
-    setOpen(true);
+  const accept = async (token: string) => {
+    const r = await acceptInvite({ token });
+    navigate(`/dive/${r.deepDiveId}`);
   };
-  const toggleProvider = (p: AIProvider) => setSelectedProviders((prev) => prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]);
-  const createProject = async () => { if (selectedProviders.length === 0) return; setCreating(true); try { const id = await createDeepDive({ providers: selectedProviders, title: projectTitle.trim() || "New Project" }); onClose(false); navigate(`/dive/${id}`); } finally { setCreating(false); } };
->>>>>>> 6520d3ba38a53b198b4eca70b45eeec609bab1cc
-  const accept = async (token: string) => { const r = await acceptInvite({ token }); navigate(`/dive/${r.deepDiveId}`); };
-  const decline = async (token: string) => { await declineInvite({ token }); };
-  const openRename = (d: { id: string; title: string }) => { setRenameDiveId(d.id); setRenameTitle(d.title); setRenameError(null); setRenameOpen(true); };
-  const submitRename = async () => { if (!renameDiveId) return; setRenameError(null); setSavingRename(true); try { await updateDeepDiveTitle({ deepDiveId: renameDiveId, title: renameTitle }); setRenameOpen(false); setRenameDiveId(null); setRenameTitle(""); } catch (e) { setRenameError(e instanceof Error ? e.message : "Could not rename"); } finally { setSavingRename(false); } };
-  const confirmDelete = async () => { if (!deleteTarget) return; setDeleteError(null); setDeleting(true); try { await deleteDeepDive({ deepDiveId: deleteTarget.id }); setDeleteTarget(null); } catch (e) { setDeleteError(e instanceof Error ? e.message : "Could not delete"); } finally { setDeleting(false); } };
+  const decline = async (token: string) => {
+    await declineInvite({ token });
+  };
+  const openRename = (d: { id: string; title: string }) => {
+    setRenameDiveId(d.id);
+    setRenameTitle(d.title);
+    setRenameError(null);
+    setRenameOpen(true);
+  };
+  const submitRename = async () => {
+    if (!renameDiveId) return;
+    setRenameError(null);
+    setSavingRename(true);
+    try {
+      await updateDeepDiveTitle({ deepDiveId: renameDiveId, title: renameTitle });
+      setRenameOpen(false);
+      setRenameDiveId(null);
+      setRenameTitle("");
+    } catch (e) {
+      setRenameError(e instanceof Error ? e.message : "Could not rename");
+    } finally {
+      setSavingRename(false);
+    }
+  };
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await deleteDeepDive({ deepDiveId: deleteTarget.id });
+      setDeleteTarget(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Could not delete");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const keys = (appSettings as any)?.apiKeys ?? [];
   const openRouterConfigured = Boolean((appSettings as any)?.openRouter?.configured) || keys.some((k: any) => k.provider === "openrouter");
