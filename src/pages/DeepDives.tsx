@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+<<<<<<< HEAD
 import { Check, Clock3, MessageSquareText, MoreHorizontal, PencilLine, Plus, Sparkles, Trash2 } from "lucide-react";
+=======
+import { ArrowUp, Clock3, MessageSquareText, Mic, MoreHorizontal, PencilLine, Plus, Trash2 } from "lucide-react";
+>>>>>>> 6520d3ba38a53b198b4eca70b45eeec609bab1cc
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from "convex/react";
 import { AI_MODELS } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
@@ -105,7 +109,9 @@ export default function DeepDives() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [heroQuery, setHeroQuery] = useState("");
 
+<<<<<<< HEAD
   const onNew = () => {
     setOpen(true);
     setProjectTitle("");
@@ -113,10 +119,14 @@ export default function DeepDives() {
     setActiveCompany("favorites");
     setKeyError(null);
   };
+=======
+  const onNew = () => { setOpen(true); setProjectTitle(""); setSelectedProviders(availableProviders.length ? availableProviders : ["gpt"]); };
+>>>>>>> 6520d3ba38a53b198b4eca70b45eeec609bab1cc
   const onClose = (v: boolean) => {
     setOpen(v);
     if (!v) {
       setProjectTitle("");
+<<<<<<< HEAD
       setSelectedProviders(availableProviders.length ? availableProviders : [fallbackProvider]);
       setKeyError(null);
     }
@@ -137,6 +147,19 @@ export default function DeepDives() {
       setCreating(false);
     }
   };
+=======
+      setHeroQuery("");
+      setSelectedProviders(availableProviders.length ? availableProviders : ["gpt"]);
+    }
+  };
+
+  const openNewFromHero = () => {
+    setProjectTitle(heroQuery.trim());
+    setOpen(true);
+  };
+  const toggleProvider = (p: AIProvider) => setSelectedProviders((prev) => prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]);
+  const createProject = async () => { if (selectedProviders.length === 0) return; setCreating(true); try { const id = await createDeepDive({ providers: selectedProviders, title: projectTitle.trim() || "New Project" }); onClose(false); navigate(`/dive/${id}`); } finally { setCreating(false); } };
+>>>>>>> 6520d3ba38a53b198b4eca70b45eeec609bab1cc
   const accept = async (token: string) => { const r = await acceptInvite({ token }); navigate(`/dive/${r.deepDiveId}`); };
   const decline = async (token: string) => { await declineInvite({ token }); };
   const openRename = (d: { id: string; title: string }) => { setRenameDiveId(d.id); setRenameTitle(d.title); setRenameError(null); setRenameOpen(true); };
@@ -196,12 +219,66 @@ export default function DeepDives() {
           </section>
         )}
 
-        {/* Projects — immediately */}
+        {/* Hero prompt — above projects */}
+        <section className="mx-auto mb-10 max-w-2xl text-center sm:mb-12">
+          <h2 className="font-display text-xl font-medium tracking-tight text-foreground sm:text-2xl">
+            What are you working on?
+          </h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+            Start in your own words — we&apos;ll open a new project you can shape from there.
+          </p>
+          <div className="mt-6 flex items-center gap-0.5 rounded-full border border-border/80 bg-card/90 px-1.5 py-1 shadow-sm ring-1 ring-black/[0.03] backdrop-blur-sm dark:bg-card/70 dark:ring-white/[0.06] sm:gap-1 sm:px-2 sm:py-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setHeroQuery("");
+                onNew();
+              }}
+              aria-label="New project"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+            <input
+              type="text"
+              value={heroQuery}
+              onChange={(e) => setHeroQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void openNewFromHero();
+                }
+              }}
+              placeholder="Ask anything"
+              className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-left text-sm text-foreground outline-none placeholder:text-muted-foreground/80"
+              aria-label="What do you want to work on?"
+            />
+            <span
+              className="hidden h-9 w-9 shrink-0 items-center justify-center text-muted-foreground/50 sm:flex"
+              aria-hidden
+            >
+              <Mic className="h-4 w-4" />
+            </span>
+            <Button
+              type="button"
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-full bg-foreground text-background shadow-sm hover:bg-foreground/90 dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90"
+              onClick={() => openNewFromHero()}
+              aria-label="Start project from prompt"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+          </div>
+        </section>
+
+        {/* Projects */}
         {deepDives.length === 0 ? (
-          <div className="flex flex-col items-center pt-24 text-center animate-fade-up">
-            <p className="text-sm text-muted-foreground">No projects yet</p>
-            <button onClick={onNew} className="mt-4 btn-gradient rounded-xl px-5 py-2.5 text-sm font-medium">
-              Create a project
+          <div className="flex flex-col items-center pt-4 text-center animate-fade-up">
+            <p className="text-sm text-muted-foreground">No projects yet — use the field above or create one here.</p>
+            <button type="button" onClick={onNew} className="mt-4 btn-gradient rounded-xl px-5 py-2.5 text-sm font-medium">
+              New project
             </button>
           </div>
         ) : (

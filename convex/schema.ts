@@ -68,6 +68,10 @@ export default defineSchema({
     lastMessagePreview: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    createdByUserId: v.optional(v.id("users")),
+    messageCount: v.optional(v.number()),
+    lastMessageAt: v.optional(v.number()),
+    lastMessagePreview: v.optional(v.string()),
   }).index("by_deepDiveId_updatedAt", ["deepDiveId", "updatedAt"]),
 
   threadMessages: defineTable({
