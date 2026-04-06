@@ -49,8 +49,13 @@ async function requireIdentity(ctx: QueryCtx | MutationCtx) {
   return identity;
 }
 
+async function getIdentityOrNull(ctx: QueryCtx) {
+  return await ctx.auth.getUserIdentity();
+}
+
 async function getExistingUserId(ctx: QueryCtx): Promise<Id<"users"> | null> {
-  const identity = await requireIdentity(ctx);
+  const identity = await getIdentityOrNull(ctx);
+  if (!identity) return null;
 
   const user = await ctx.db
     .query("users")
@@ -70,16 +75,36 @@ async function getOrCreateUserId(ctx: MutationCtx): Promise<Id<"users">> {
 
   if (user) return user._id;
 
-  return await ctx.db.insert("users", {
-    name: identity.name,
-    email: identity.email,
-    image: identity.pictureUrl,
-    tokenIdentifier: identity.tokenIdentifier,
-  });
+  return await ctx.db.insert(
+    "users",
+    stripUndefined({
+      name: identity.name,
+      email: identity.email,
+      image: identity.pictureUrl,
+      tokenIdentifier: identity.tokenIdentifier,
+    }),
+  );
 }
 
 function now() {
   return Date.now();
+}
+
+function stripUndefined<T>(value: T): T {
+  if (value === undefined) return value;
+  if (value === null) return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)).filter((item) => item !== undefined) as unknown as T;
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v === undefined) continue;
+      out[key] = stripUndefined(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
 }
 
 async function getRoleForUser(
@@ -391,7 +416,7 @@ export const createThread = mutation({
         deepDiveId: args.deepDiveId,
         threadId,
         messageId,
-        message: { ...message, id: messageId } satisfies DeepDiveUIMessage,
+        message: stripUndefined({ ...message, id: messageId } satisfies DeepDiveUIMessage),
         createdAt,
         updatedAt: createdAt,
       });
@@ -643,7 +668,7 @@ export const appendUserMessage = mutation({
           deepDiveId: thread.deepDiveId,
           threadId: args.threadId,
           messageId,
-          message: { ...message, id: messageId } satisfies DeepDiveUIMessage,
+          message: stripUndefined({ ...message, id: messageId } satisfies DeepDiveUIMessage),
           createdAt,
           updatedAt: createdAt,
         });
@@ -652,25 +677,26 @@ export const appendUserMessage = mutation({
     }
 
     const messageId = `msg-${timestamp}-user`;
-    const message: DeepDiveUIMessage = {
+    const replyToExcerpt = args.replyToExcerpt?.trim();
+    const message: DeepDiveUIMessage = stripUndefined({
       id: messageId,
       role: "user",
       metadata: {
         author: {
           userId,
-          name: user?.name,
-          email: user?.email,
-          image: user?.image,
+          name: user?.name ?? undefined,
+          email: user?.email ?? undefined,
+          image: user?.image ?? undefined,
         },
         replyTo: args.replyToMessageId
           ? {
               messageId: args.replyToMessageId,
-              excerpt: args.replyToExcerpt?.trim() || undefined,
+              excerpt: replyToExcerpt && replyToExcerpt.length ? replyToExcerpt : undefined,
             }
           : undefined,
       },
       parts: [{ type: "text", text: trimmed }],
-    };
+    });
     await ctx.db.insert("threadMessages", {
       deepDiveId: thread.deepDiveId,
       threadId: args.threadId,
@@ -1190,7 +1216,7 @@ export const migrateThreadLegacyMessages = internalMutation({
         deepDiveId: thread.deepDiveId,
         threadId: args.threadId,
         messageId,
-        message: { ...message, id: messageId } satisfies DeepDiveUIMessage,
+        message: stripUndefined({ ...message, id: messageId } satisfies DeepDiveUIMessage),
         createdAt,
         updatedAt: createdAt,
       });
@@ -1219,7 +1245,7 @@ export const appendAssistantMessage = internalMutation({
       deepDiveId: thread.deepDiveId,
       threadId: args.threadId,
       messageId: `msg-${timestamp}-assistant`,
-      message: {
+      message: stripUndefined({
         id: `msg-${timestamp}-assistant`,
         role: "assistant",
         metadata: {
@@ -1229,7 +1255,7 @@ export const appendAssistantMessage = internalMutation({
           routingNote: args.routingNote,
         },
         parts: [{ type: "text", text: args.text }],
-      } satisfies DeepDiveUIMessage,
+      } satisfies DeepDiveUIMessage),
       createdAt: timestamp,
       updatedAt: timestamp,
     });
@@ -1262,7 +1288,7 @@ export const createAssistantDraft = internalMutation({
       deepDiveId: thread.deepDiveId,
       threadId: args.threadId,
       messageId: args.messageId,
-      message: {
+      message: stripUndefined({
         id: args.messageId,
         role: "assistant",
         metadata: {
@@ -1273,7 +1299,7 @@ export const createAssistantDraft = internalMutation({
           done: false,
         },
         parts: [{ type: "text", text: "" }],
-      } satisfies DeepDiveUIMessage,
+      } satisfies DeepDiveUIMessage),
       createdAt: timestamp,
       updatedAt: timestamp,
     });
@@ -1303,7 +1329,7 @@ export const updateAssistantDraft = internalMutation({
     if (!row) return;
 
     const target = row.message as DeepDiveUIMessage;
-    const nextMessage: DeepDiveUIMessage = {
+    const nextMessage: DeepDiveUIMessage = stripUndefined({
       ...target,
       parts: [{ type: "text", text: args.text }],
       metadata: {
@@ -1314,7 +1340,7 @@ export const updateAssistantDraft = internalMutation({
         reasoningTokens: args.reasoningTokens ?? (target.metadata?.reasoningTokens as number | undefined),
         done: args.done ?? false,
       } as DeepDiveUIMessage["metadata"],
-    };
+    });
 
     await ctx.db.patch(row._id, {
       message: nextMessage,
