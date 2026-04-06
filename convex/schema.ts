@@ -90,6 +90,40 @@ export default defineSchema({
     .index("by_threadId_and_messageId", ["threadId", "messageId"])
     .index("by_deepDiveId_and_createdAt", ["deepDiveId", "createdAt"]),
 
+  threadAiQueue: defineTable({
+    threadId: v.id("threads"),
+    deepDiveId: v.id("deepDives"),
+    promptMessageId: v.string(),
+    promptCreatedAt: v.number(),
+    requestedByUserId: v.id("users"),
+    status: v.union(v.literal("pending"), v.literal("running"), v.literal("done"), v.literal("failed")),
+    workerId: v.optional(v.string()),
+    assistantMessageId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_threadId_and_status_and_createdAt", ["threadId", "status", "createdAt"])
+    .index("by_threadId_and_status_and_promptCreatedAt", ["threadId", "status", "promptCreatedAt"])
+    .index("by_threadId_and_promptMessageId", ["threadId", "promptMessageId"])
+    .index("by_threadId_and_createdAt", ["threadId", "createdAt"]),
+
+  threadAiLocks: defineTable({
+    threadId: v.id("threads"),
+    workerId: v.string(),
+    expiresAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_threadId", ["threadId"]),
+
+  deepDivePresence: defineTable({
+    deepDiveId: v.id("deepDives"),
+    userId: v.id("users"),
+    lastSeenAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_deepDiveId_and_lastSeenAt", ["deepDiveId", "lastSeenAt"])
+    .index("by_deepDiveId_and_userId", ["deepDiveId", "userId"]),
+
   uploads: defineTable({
     deepDiveId: v.id("deepDives"),
     name: v.string(),

@@ -30,6 +30,8 @@ export const convexApi = {
     acceptInvite: "deepDives:acceptInvite",
     leaveDeepDive: "deepDives:leaveDeepDive",
     listMembers: "deepDives:listMembers",
+    heartbeat: "deepDives:heartbeat",
+    listOnlineMembers: "deepDives:listOnlineMembers",
     updateMemberRole: "deepDives:updateMemberRole",
     removeMember: "deepDives:removeMember",
     listHumanChatMessages: "deepDives:listHumanChatMessages",

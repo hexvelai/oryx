@@ -86,6 +86,33 @@ async function getOrCreateUserId(ctx: MutationCtx): Promise<Id<"users">> {
   );
 }
 
+export const ensureUserForTokenIdentifier = internalMutation({
+  args: {
+    tokenIdentifier: v.string(),
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+    image: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", args.tokenIdentifier))
+      .unique();
+    if (existing) return { userId: existing._id };
+
+    const userId = await ctx.db.insert(
+      "users",
+      stripUndefined({
+        name: args.name,
+        email: args.email,
+        image: args.image,
+        tokenIdentifier: args.tokenIdentifier,
+      }),
+    );
+    return { userId };
+  },
+});
+
 function now() {
   return Date.now();
 }
@@ -646,7 +673,7 @@ export const appendUserMessage = mutation({
     requireRole(role, ["owner", "editor", "commenter"]);
 
     const trimmed = args.text.trim();
-    if (!trimmed) return;
+    if (!trimmed) return { messageId: null as null, createdAt: null as null };
 
     const user = await ctx.db.get(userId);
 
@@ -714,6 +741,178 @@ export const appendUserMessage = mutation({
       title: thread.title === "New thread" || thread.title === "Thread 1" ? nextTitle : thread.title,
     });
     await ctx.db.patch(thread.deepDiveId, { updatedAt: timestamp });
+    return { messageId, createdAt: timestamp };
+  },
+});
+
+export const getThreadMessageMeta = internalQuery({
+  args: { threadId: v.id("threads"), messageId: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_messageId", (q) => q.eq("threadId", args.threadId).eq("messageId", args.messageId))
+      .unique();
+    if (!row) return null;
+    return { createdAt: row.createdAt, message: row.message as DeepDiveUIMessage };
+  },
+});
+
+export const enqueueThreadAiJob = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    promptMessageId: v.string(),
+    promptCreatedAt: v.number(),
+    requestedByUserId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) throw new Error("Thread not found");
+
+    const existing = await ctx.db
+      .query("threadAiQueue")
+      .withIndex("by_threadId_and_promptMessageId", (q) => q.eq("threadId", args.threadId).eq("promptMessageId", args.promptMessageId))
+      .unique();
+    if (existing) return { jobId: existing._id };
+
+    const timestamp = now();
+    const jobId = await ctx.db.insert("threadAiQueue", {
+      threadId: args.threadId,
+      deepDiveId: thread.deepDiveId,
+      promptMessageId: args.promptMessageId,
+      promptCreatedAt: args.promptCreatedAt,
+      requestedByUserId: args.requestedByUserId,
+      status: "pending",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    return { jobId };
+  },
+});
+
+export const tryAcquireThreadAiLock = internalMutation({
+  args: { threadId: v.id("threads"), workerId: v.string() },
+  handler: async (ctx, args) => {
+    const timestamp = now();
+    const ttlMs = 5 * 60_000;
+    const expiresAt = timestamp + ttlMs;
+
+    const existing = await ctx.db
+      .query("threadAiLocks")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .unique();
+
+    if (!existing) {
+      const lockId = await ctx.db.insert("threadAiLocks", {
+        threadId: args.threadId,
+        workerId: args.workerId,
+        expiresAt,
+        updatedAt: timestamp,
+      });
+      return { ok: true, lockId };
+    }
+
+    if (existing.workerId === args.workerId || existing.expiresAt <= timestamp) {
+      await ctx.db.patch(existing._id, { workerId: args.workerId, expiresAt, updatedAt: timestamp });
+      return { ok: true, lockId: existing._id };
+    }
+
+    return { ok: false, lockId: existing._id };
+  },
+});
+
+export const releaseThreadAiLock = internalMutation({
+  args: { threadId: v.id("threads"), workerId: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("threadAiLocks")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .unique();
+    if (!existing) return { ok: true };
+    if (existing.workerId !== args.workerId) return { ok: true };
+    await ctx.db.delete(existing._id);
+    return { ok: true };
+  },
+});
+
+export const claimNextThreadAiJob = internalMutation({
+  args: { threadId: v.id("threads"), workerId: v.string() },
+  handler: async (ctx, args) => {
+    const next = await ctx.db
+      .query("threadAiQueue")
+      .withIndex("by_threadId_and_status_and_promptCreatedAt", (q) => q.eq("threadId", args.threadId).eq("status", "pending"))
+      .order("asc")
+      .first();
+
+    if (!next) return { job: null as null };
+
+    const timestamp = now();
+    await ctx.db.patch(next._id, { status: "running", workerId: args.workerId, updatedAt: timestamp });
+    return { job: next };
+  },
+});
+
+export const markThreadAiJobDone = internalMutation({
+  args: { jobId: v.id("threadAiQueue"), assistantMessageId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job) return { ok: true };
+    const timestamp = now();
+    await ctx.db.patch(args.jobId, {
+      status: "done",
+      assistantMessageId: args.assistantMessageId,
+      updatedAt: timestamp,
+      error: undefined,
+    });
+    return { ok: true };
+  },
+});
+
+export const markThreadAiJobFailed = internalMutation({
+  args: { jobId: v.id("threadAiQueue"), error: v.string() },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job) return { ok: true };
+    const timestamp = now();
+    await ctx.db.patch(args.jobId, { status: "failed", error: args.error.slice(0, 1000), updatedAt: timestamp });
+    return { ok: true };
+  },
+});
+
+export const getThreadContextUpTo = internalQuery({
+  args: { threadId: v.id("threads"), upToCreatedAt: v.number() },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) return null;
+    const deepDive = await ctx.db.get(thread.deepDiveId);
+    if (!deepDive) return null;
+
+    const rows = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_createdAt", (q) => q.eq("threadId", args.threadId))
+      .order("asc")
+      .collect();
+
+    const cutoff = args.upToCreatedAt;
+    const userMessageIdsUpTo = new Set<string>();
+    for (const row of rows) {
+      if (row.createdAt > cutoff) continue;
+      const message = rowToThreadMessage(row);
+      if (!message) continue;
+      if (message.role === "user") userMessageIdsUpTo.add(message.id);
+    }
+
+    const messages = rows
+      .map((row) => rowToThreadMessage(row))
+      .filter((message): message is DeepDiveUIMessage => {
+        if (!message) return false;
+        const createdAt = typeof message.metadata?.createdAt === "number" ? message.metadata.createdAt : undefined;
+        const isUser = message.role === "user";
+        if (isUser) return (createdAt ?? 0) <= cutoff;
+        if ((createdAt ?? 0) <= cutoff) return true;
+        const replyTo = message.metadata?.replyTo?.messageId;
+        return Boolean(replyTo && userMessageIdsUpTo.has(replyTo));
+      });
+    return { thread, deepDive, messages };
   },
 });
 
@@ -735,10 +934,9 @@ export const createInvite = mutation({
       ? timestamp + Math.max(1, Math.min(30, Math.floor(args.expiresInDays ?? 7))) * 24 * 60 * 60 * 1000
       : timestamp + 7 * 24 * 60 * 60 * 1000;
 
-    const token =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${timestamp}-${Math.random().toString(16).slice(2)}`;
+    const randomUUID =
+      typeof crypto !== "undefined" ? (crypto as { randomUUID?: () => string }).randomUUID : undefined;
+    const token = typeof randomUUID === "function" ? randomUUID() : `${timestamp}-${Math.random().toString(16).slice(2)}`;
 
     await ctx.db.insert("deepDiveInvites", {
       deepDiveId: args.deepDiveId,
@@ -998,6 +1196,65 @@ export const listMembers = query({
     }
 
     members.sort((a, b) => ROLE_RANK[b.role] - ROLE_RANK[a.role] || (a.email ?? "").localeCompare(b.email ?? ""));
+    return members;
+  },
+});
+
+export const heartbeat = mutation({
+  args: { deepDiveId: v.id("deepDives") },
+  handler: async (ctx, args) => {
+    const userId = await getOrCreateUserId(ctx);
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor", "commenter", "viewer"]);
+
+    const timestamp = now();
+    const existing = await ctx.db
+      .query("deepDivePresence")
+      .withIndex("by_deepDiveId_and_userId", (q) => q.eq("deepDiveId", args.deepDiveId).eq("userId", userId))
+      .unique();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { lastSeenAt: timestamp, updatedAt: timestamp });
+      return { ok: true };
+    }
+
+    await ctx.db.insert("deepDivePresence", {
+      deepDiveId: args.deepDiveId,
+      userId,
+      lastSeenAt: timestamp,
+      updatedAt: timestamp,
+    });
+    return { ok: true };
+  },
+});
+
+export const listOnlineMembers = query({
+  args: { deepDiveId: v.id("deepDives") },
+  handler: async (ctx, args) => {
+    const userId = await getExistingUserId(ctx);
+    if (!userId) return [];
+    const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
+    requireRole(role, ["owner", "editor", "commenter", "viewer"]);
+
+    const cutoffMs = 45_000;
+    const cutoff = now() - cutoffMs;
+    const rows = await ctx.db
+      .query("deepDivePresence")
+      .withIndex("by_deepDiveId_and_lastSeenAt", (q) => q.eq("deepDiveId", args.deepDiveId).gte("lastSeenAt", cutoff))
+      .order("desc")
+      .take(12);
+
+    const members = [];
+    for (const row of rows) {
+      const user = await ctx.db.get(row.userId);
+      members.push({
+        userId: row.userId,
+        name: user?.name,
+        email: user?.email,
+        image: user?.image,
+        lastSeenAt: row.lastSeenAt,
+      });
+    }
     return members;
   },
 });
@@ -1272,12 +1529,16 @@ export const createAssistantDraft = internalMutation({
     provider: v.string(),
     model: v.string(),
     routingNote: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    replyToMessageId: v.optional(v.string()),
+    replyToExcerpt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
     if (!thread) throw new Error("Thread not found");
 
     const timestamp = now();
+    const createdAt = typeof args.createdAt === "number" && Number.isFinite(args.createdAt) ? args.createdAt : timestamp;
     const existing = await ctx.db
       .query("threadMessages")
       .withIndex("by_threadId_and_messageId", (q) => q.eq("threadId", args.threadId).eq("messageId", args.messageId))
@@ -1292,15 +1553,21 @@ export const createAssistantDraft = internalMutation({
         id: args.messageId,
         role: "assistant",
         metadata: {
-          createdAt: timestamp,
+          createdAt,
           provider: args.provider as AIProvider,
           model: args.model,
           routingNote: args.routingNote,
+          replyTo: args.replyToMessageId
+            ? {
+                messageId: args.replyToMessageId,
+                excerpt: args.replyToExcerpt?.trim() || undefined,
+              }
+            : undefined,
           done: false,
         },
         parts: [{ type: "text", text: "" }],
       } satisfies DeepDiveUIMessage),
-      createdAt: timestamp,
+      createdAt,
       updatedAt: timestamp,
     });
   },

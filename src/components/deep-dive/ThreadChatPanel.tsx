@@ -37,6 +37,15 @@ function renderMarkdown(content: string) {
         blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-border pl-3 italic text-muted-foreground">{children}</blockquote>,
         code: ({ children, className }) => <code className={`rounded bg-muted px-1.5 py-0.5 font-mono text-[0.88em] ${className ?? ""}`}>{children}</code>,
         pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-lg bg-muted p-3.5 text-sm">{children}</pre>,
+        table: ({ children }) => (
+          <div className="my-3 overflow-x-auto">
+            <table className="w-full border-collapse text-sm">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => <thead className="bg-muted/40">{children}</thead>,
+        tr: ({ children }) => <tr className="border-b border-border/50 last:border-b-0">{children}</tr>,
+        th: ({ children }) => <th className="px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">{children}</th>,
+        td: ({ children }) => <td className="px-2 py-1.5 align-top">{children}</td>,
       }}
     >
       {content}
@@ -50,6 +59,7 @@ function hasRenderableParts(msg: DeepDiveUIMessage) {
 
 interface ThreadChatPanelProps {
   thread: DeepDiveThreadRecord;
+  mentionProviders?: AIProvider[];
   onAskOther: (seed: DeepDiveUIMessage[], provider?: AIProvider) => void;
   onVote: (seed: DeepDiveUIMessage[]) => void;
   onDebate: (seed: DeepDiveUIMessage[]) => void;
@@ -64,21 +74,68 @@ interface ThreadChatPanelProps {
   replyTo?: { messageId: string; label: string } | null;
   onCancelReply?: () => void;
   votePrompt?: { visible: boolean; text: string; onCallVote: () => void; onDismiss: () => void };
+  debatePrompt?: { visible: boolean; text: string; onCallDebate: () => void; onDismiss: () => void };
 }
 
 export function ThreadChatPanel({
-  thread, onAskOther, onVote, onDebate, onSend, isSending, errorMessage, defaultOther,
+  thread, mentionProviders, onAskOther, onVote, onDebate, onSend, isSending, errorMessage, defaultOther,
   canSend = true, canUseTools = true, onReplyToMessage, onReplyInHumanChat, replyTo, onCancelReply,
-  votePrompt,
+  votePrompt, debatePrompt,
 }: ThreadChatPanelProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const seenAssistantIdsRef = useRef<Set<string>>(new Set());
   const animationFrameRef = useRef<number | null>(null);
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
   const [animatedText, setAnimatedText] = useState("");
+  const messageElByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const bubbleElByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const modelDotElByIdRef = useRef<Map<string, HTMLSpanElement>>(new Map());
+  const [replyPaths, setReplyPaths] = useState<Array<{ fromId: string; toId: string; d: string; color: string }>>([]);
   const visible = useMemo(() => thread.messages.filter(hasRenderableParts), [thread.messages]);
+  const debateLayout = useMemo(() => {
+    if (thread.type !== "teamwork") return null;
+    const byId = new Map<string, "left" | "right" | "full">();
+    const leftProviders: AIProvider[] = [];
+    const rightProviders: AIProvider[] = [];
+    let turnIndex = 0;
+    for (const m of thread.teamworkMessages ?? []) {
+      const isConsensus = m.to === "all" && (m.id.includes("consensus") || /##\s*Final\s+Consensus/i.test(m.content));
+      if (isConsensus) {
+        byId.set(m.id, "full");
+        continue;
+      }
+      if (m.to === "all") {
+        byId.set(m.id, "full");
+        continue;
+      }
+      const side = turnIndex % 2 === 0 ? "left" : "right";
+      byId.set(m.id, side);
+      if (side === "left") leftProviders.push(m.from);
+      else rightProviders.push(m.from);
+      turnIndex += 1;
+    }
+
+    const uniq = (arr: AIProvider[]) => arr.filter((v, idx, items) => items.indexOf(v) === idx);
+    const left = uniq(leftProviders)[0];
+    const right = uniq(rightProviders)[0] ?? left;
+    return { byId, left, right };
+  }, [thread.type, thread.teamworkMessages]);
+  const voteSummary = useMemo(() => {
+    if (thread.type !== "vote") return null;
+    const results = thread.voteResults ?? [];
+    const maxVotes = results.reduce((m, r) => Math.max(m, r.votes?.length ?? 0), 0) || 1;
+    const winner = results.length ? [...results].sort((a, b) => (b.votes?.length ?? 0) - (a.votes?.length ?? 0))[0] : null;
+    return { results, maxVotes, winner };
+  }, [thread.type, thread.voteResults]);
+  const mentionOptions = useMemo(() => {
+    const providers = (mentionProviders?.length ? mentionProviders : []) as AIProvider[];
+    return providers
+      .map((p) => ({ id: p, label: getAIModel(p)?.name ?? p, description: getAIModel(p)?.description }))
+      .filter((m) => Boolean(m.id));
+  }, [mentionProviders]);
 
   useEffect(() => {
     const el = scrollerRef.current;
@@ -96,6 +153,61 @@ export function ThreadChatPanel({
     requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "auto", block: "end" }));
   }, [lastId, isSending, animatingMessageId, animatedText]);
 
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    const overlay = overlayRef.current;
+    if (!scroller || !overlay) return;
+
+    const compute = () => {
+      const overlayRect = overlay.getBoundingClientRect();
+      const next: Array<{ fromId: string; toId: string; d: string; color: string }> = [];
+      for (const msg of visible) {
+        const replyId = msg.metadata?.replyTo?.messageId;
+        if (!replyId) continue;
+        const toEl = bubbleElByIdRef.current.get(replyId) ?? messageElByIdRef.current.get(replyId);
+        if (!toEl) continue;
+
+        const dotEl = modelDotElByIdRef.current.get(msg.id);
+        const fromFallbackEl = bubbleElByIdRef.current.get(msg.id) ?? messageElByIdRef.current.get(msg.id);
+        if (!dotEl && !fromFallbackEl) continue;
+
+        const toRect = toEl.getBoundingClientRect();
+        const dotRect = dotEl?.getBoundingClientRect();
+        const fromRect = dotRect ?? fromFallbackEl!.getBoundingClientRect();
+
+        const x1 = fromRect.left - overlayRect.left + fromRect.width / 2;
+        const y1 = fromRect.top - overlayRect.top + fromRect.height / 2;
+
+        const toCenterX = toRect.left - overlayRect.left + toRect.width / 2;
+        const isTargetToRight = x1 < toCenterX;
+        const edgeX = isTargetToRight ? toRect.left - overlayRect.left : toRect.right - overlayRect.left;
+        const x2 = edgeX + (isTargetToRight ? -2 : 2);
+        const y2 = toRect.top - overlayRect.top + Math.min(18, Math.max(10, toRect.height * 0.35));
+
+        const d = `M ${x1} ${y1} V ${y2} H ${x2}`;
+
+        const providerRaw = msg.metadata?.provider as unknown;
+        const model = getAIModel(providerRaw) ?? null;
+        const color = model ? `hsl(var(--${model.color}))` : "hsl(var(--primary))";
+        next.push({ fromId: msg.id, toId: replyId, d, color });
+      }
+      setReplyPaths(next);
+    };
+
+    const raf = requestAnimationFrame(compute);
+    const onScroll = () => compute();
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    const ro = new ResizeObserver(() => compute());
+    ro.observe(scroller);
+    ro.observe(overlay);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      scroller.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+    };
+  }, [visible, animatingMessageId, animatedText]);
+
   useEffect(() => {
     const assistants = visible.filter((message) => message.role === "assistant");
     if (seenAssistantIdsRef.current.size === 0) {
@@ -109,6 +221,7 @@ export function ThreadChatPanel({
 
     const fullText = getMessageText(next);
     seenAssistantIdsRef.current.add(next.id);
+    if (next.metadata?.done === false) return;
     if (!fullText) return;
 
     setAnimatingMessageId(next.id);
@@ -158,7 +271,94 @@ export function ThreadChatPanel({
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
         <div className="mx-auto max-w-[44rem] px-4 py-6 sm:px-6">
-          <div className="space-y-6">
+          <div ref={overlayRef} className="relative">
+            <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+              {replyPaths.map((p) => (
+                <path
+                  key={`${p.fromId}->${p.toId}`}
+                  d={p.d}
+                  fill="none"
+                  stroke={p.color}
+                  strokeOpacity={0.35}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ))}
+            </svg>
+            <div className="space-y-6">
+            {thread.type === "vote" && voteSummary?.results.length ? (
+              <div className="animate-fade-up rounded-xl border border-border/40 bg-card/40 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-medium text-foreground">Vote</p>
+                  {voteSummary.winner ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      Leading: {getAIModel(voteSummary.winner.provider)?.name ?? voteSummary.winner.provider}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="mt-2 space-y-2">
+                  {voteSummary.results.map((r) => {
+                    const model = getAIModel(r.provider);
+                    const color = model ? `hsl(var(--${model.color}))` : "hsl(var(--primary))";
+                    const count = r.votes?.length ?? 0;
+                    const pct = Math.round((count / voteSummary.maxVotes) * 100);
+                    return (
+                      <div key={r.provider} className="space-y-1">
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className={`h-2 w-2 rounded-full${isSending ? " animate-pulse" : ""}`} style={{ backgroundColor: color }} />
+                            <span className="truncate" style={{ color }}>{model?.name ?? r.provider}</span>
+                          </div>
+                          <span className="shrink-0 tabular-nums text-muted-foreground">{count}</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full transition-[width] duration-500 ease-out"
+                            style={{ width: `${pct}%`, backgroundColor: color, opacity: 0.55 }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {thread.type === "teamwork" && (debateLayout?.left || debateLayout?.right) ? (
+              <div className="animate-fade-up rounded-xl border border-border/40 bg-card/40 px-3 py-2">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {(() => {
+                      const p = debateLayout.left ?? debateLayout.right ?? ("nemotron" as AIProvider);
+                      const model = getAIModel(p);
+                      const color = model ? `hsl(var(--${model.color}))` : "hsl(var(--primary))";
+                      return (
+                        <>
+                          <span className={`h-2 w-2 rounded-full${isSending ? " animate-pulse" : ""}`} style={{ backgroundColor: color }} />
+                          <span className="truncate font-medium" style={{ color }}>{model?.name ?? p}</span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">vs</span>
+                  <div className="flex min-w-0 items-center justify-end gap-2">
+                    {(() => {
+                      const p = debateLayout.right ?? debateLayout.left ?? ("nemotron" as AIProvider);
+                      const model = getAIModel(p);
+                      const color = model ? `hsl(var(--${model.color}))` : "hsl(var(--primary))";
+                      return (
+                        <>
+                          <span className="truncate font-medium" style={{ color }}>{model?.name ?? p}</span>
+                          <span className={`h-2 w-2 rounded-full${isSending ? " animate-pulse" : ""}`} style={{ backgroundColor: color }} />
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             {visible.length === 0 && (
               <div className="pt-16 pb-8 text-center animate-fade-up">
                 <p className="text-sm text-muted-foreground">Start typing to begin a conversation.</p>
@@ -175,21 +375,50 @@ export function ThreadChatPanel({
                   : undefined;
               const model = getAIModel(providerRaw) ?? null;
               const text = getMessageText(message);
-              const displayedText = animatingMessageId === message.id ? animatedText : text;
+              const isDraft = !isUser && message.metadata?.done === false;
+              const displayedText = !isDraft && animatingMessageId === message.id ? animatedText : text;
               const showActions = !isUser && (canUseTools || Boolean(onReplyToMessage) || Boolean(onReplyInHumanChat));
               const author = message.metadata?.author;
               const authorLabel = author ? (author.name || author.email || "Member").toString() : null;
               const replyId = message.metadata?.replyTo?.messageId;
               const replyExcerpt = message.metadata?.replyTo?.excerpt;
               const modelColor = model ? `hsl(var(--${model.color}))` : "hsl(var(--primary))";
+              const isDebate = thread.type === "teamwork";
+              const debateSide = isDebate ? (debateLayout?.byId.get(message.id) ?? null) : null;
+              const alignRight = Boolean(debateSide === "right");
+              const rowAlign = isUser ? "justify-end" : (isDebate ? (alignRight ? "justify-end" : "justify-start") : "justify-start");
+              const maxWidth = isDebate && !isUser
+                ? (debateSide === "full" ? "w-full" : "w-[min(48%,26rem)]")
+                : (isUser ? "max-w-[min(85%,26rem)]" : "w-full");
+              const bubbleAnimation =
+                isDebate && !isUser && debateSide !== "full"
+                  ? (alignRight ? " animate-slide-in-right" : " animate-slide-in-left")
+                  : "";
 
               return (
-                <div key={message.id} id={`thread-msg-${message.id}`} className={`flex w-full min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
-                  <div className={`min-w-0 ${isUser ? "max-w-[min(85%,26rem)]" : "w-full"}`}>
+                <div
+                  key={message.id}
+                  ref={(el) => {
+                    if (el) messageElByIdRef.current.set(message.id, el);
+                    else messageElByIdRef.current.delete(message.id);
+                  }}
+                  id={`thread-msg-${message.id}`}
+                  className={`flex w-full min-w-0 ${rowAlign}`}
+                >
+                  <div className={`min-w-0 ${maxWidth}`}>
                     {!isUser && (
-                      <div className="group mb-1 flex items-center gap-2">
+                      <div className={`group mb-1 flex items-center gap-2${isDebate && alignRight ? " justify-end" : ""}`}>
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          {model && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: modelColor }} />}
+                          {model && (
+                            <span
+                              ref={(el) => {
+                                if (el) modelDotElByIdRef.current.set(message.id, el);
+                                else modelDotElByIdRef.current.delete(message.id);
+                              }}
+                              className="h-2 w-2 rounded-full"
+                              style={{ backgroundColor: modelColor }}
+                            />
+                          )}
                           <span className="font-medium" style={model ? { color: modelColor } : undefined}>{model?.name ?? "Assistant"}</span>
                         </div>
                         {showActions && (
@@ -233,14 +462,27 @@ export function ThreadChatPanel({
                     )}
 
                     {isUser ? (
-                      <div className="rounded-2xl bg-[hsl(var(--user-bubble))] px-4 py-2.5 text-[14px] leading-relaxed text-foreground">
+                      <div
+                        ref={(el) => {
+                          if (el) bubbleElByIdRef.current.set(message.id, el);
+                          else bubbleElByIdRef.current.delete(message.id);
+                        }}
+                        className="rounded-2xl bg-[hsl(var(--user-bubble))] px-4 py-2.5 text-[14px] leading-relaxed text-foreground"
+                      >
                         <div className="break-words text-pretty">{renderMarkdown(text)}</div>
                       </div>
                     ) : (
-                      <div className="chat-bubble-ai pl-3.5" style={{ "--bubble-accent": modelColor } as React.CSSProperties}>
+                      <div
+                        ref={(el) => {
+                          if (el) bubbleElByIdRef.current.set(message.id, el);
+                          else bubbleElByIdRef.current.delete(message.id);
+                        }}
+                        className={`chat-bubble-ai pl-3.5${bubbleAnimation}`}
+                        style={{ "--bubble-accent": modelColor } as React.CSSProperties}
+                      >
                         <div className="text-[14px] leading-[1.75] text-foreground break-words text-pretty [&_h1]:mb-2 [&_h1]:mt-5 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:text-sm [&_h3]:font-medium [&_hr]:my-4 [&_hr]:border-border/40">
                           {renderMarkdown(displayedText)}
-                          {animatingMessageId === message.id && (
+                          {(isDraft || animatingMessageId === message.id) && (
                             <span className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[1px] animate-pulse bg-foreground/50 align-middle" />
                           )}
                         </div>
@@ -263,12 +505,28 @@ export function ThreadChatPanel({
 
             {errorMessage && <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-sm text-destructive">{errorMessage}</div>}
             <div ref={endRef} />
+            </div>
           </div>
         </div>
       </div>
 
       <div className="border-t border-border/40 px-4 py-3 sm:px-6">
         <div className="mx-auto max-w-[44rem]">
+          {debatePrompt?.visible && (
+            <div className="mb-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-foreground">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate">{debatePrompt.text}</span>
+                <div className="flex items-center gap-1.5">
+                  <Button type="button" size="sm" className="h-7 px-2 text-xs" onClick={debatePrompt.onCallDebate}>
+                    Start debate
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={debatePrompt.onDismiss}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
           {votePrompt?.visible && (
             <div className="mb-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-foreground">
               <div className="flex items-center justify-between gap-2">
@@ -290,6 +548,7 @@ export function ThreadChatPanel({
             disabled={isSending || !canSend}
             autoFocus={true}
             reply={replyTo ? { label: replyTo.label, onClick: () => jump(replyTo.messageId), onCancel: onCancelReply } : null}
+            mentions={mentionOptions.length ? mentionOptions : undefined}
           />
         </div>
       </div>

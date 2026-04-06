@@ -293,6 +293,15 @@ function MessageBubble({
                     </code>
                   ),
                   pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[18px] bg-black/5 p-3 dark:bg-white/[0.06]">{children}</pre>,
+                  table: ({ children }) => (
+                    <div className="my-3 overflow-x-auto">
+                      <table className="w-full border-collapse text-sm">{children}</table>
+                    </div>
+                  ),
+                  thead: ({ children }) => <thead className="bg-black/5 dark:bg-white/[0.06]">{children}</thead>,
+                  tr: ({ children }) => <tr className="border-b border-border/60 last:border-b-0">{children}</tr>,
+                  th: ({ children }) => <th className="px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">{children}</th>,
+                  td: ({ children }) => <td className="px-2 py-1.5 align-top">{children}</td>,
                 }}
               >
                 {message.content}
@@ -322,6 +331,15 @@ function MessageBubble({
                     </code>
                   ),
                   pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-[18px] bg-black/5 p-3 dark:bg-white/[0.06]">{children}</pre>,
+                  table: ({ children }) => (
+                    <div className="my-3 overflow-x-auto">
+                      <table className="w-full border-collapse text-sm">{children}</table>
+                    </div>
+                  ),
+                  thead: ({ children }) => <thead className="bg-black/5 dark:bg-white/[0.06]">{children}</thead>,
+                  tr: ({ children }) => <tr className="border-b border-border/60 last:border-b-0">{children}</tr>,
+                  th: ({ children }) => <th className="px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">{children}</th>,
+                  td: ({ children }) => <td className="px-2 py-1.5 align-top">{children}</td>,
                 }}
               >
                 {message.content}

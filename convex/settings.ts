@@ -123,7 +123,9 @@ export const addApiKey = mutation({
     const now = Date.now();
     const current = readStoredKeyArray(existing?.value ?? "[]");
 
-    const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${now}-${Math.random().toString(16).slice(2)}`;
+    const randomUUID =
+      typeof crypto !== "undefined" ? (crypto as { randomUUID?: () => string }).randomUUID : undefined;
+    const id = typeof randomUUID === "function" ? randomUUID() : `${now}-${Math.random().toString(16).slice(2)}`;
     const entry = {
       id,
       provider,

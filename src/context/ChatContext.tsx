@@ -190,8 +190,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [convexCreateThread]);
 
   const sendDeepDiveMessage = useCallback(async (deepDiveId: string, threadId: string, content: string) => {
-    await convexAppendUserMessage({ threadId, text: content });
-    await convexSendThreadMessage({ threadId });
+    const appended = await convexAppendUserMessage({ threadId, text: content });
+    await convexSendThreadMessage({ threadId, promptMessageId: appended?.messageId ?? undefined });
   }, [convexAppendUserMessage, convexSendThreadMessage]);
 
   const removeDeepDiveUpload = useCallback(async (deepDiveId: string, uploadId: string) => {

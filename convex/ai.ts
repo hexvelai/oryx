@@ -1,6 +1,6 @@
 "use node";
 
-import { action, ActionCtx } from "./_generated/server";
+import { action, internalAction, ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { generateText } from "ai";
@@ -608,6 +608,102 @@ async function runGeminiGenerateContent(args: {
   return text.trim();
 }
 
+async function runGeminiGenerateContentStream(args: {
+  apiKey: string;
+  model: string;
+  messages: DeepDiveUIMessage[];
+  temperature?: number;
+  onDelta: (delta: string) => Promise<void> | void;
+}): Promise<{ text: string }> {
+  const model = args.model?.trim() || MODEL_BY_PROVIDER["gemini-3-flash"];
+  if (!model) throw new Error("Gemini model is required");
+  const prompt = toGeminiPrompt(args.messages);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25_000);
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": args.apiKey,
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: args.temperature ?? 0.7,
+        },
+      }),
+      signal: controller.signal,
+    },
+  ).finally(() => clearTimeout(timer));
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    const message = payload?.error?.message || "Gemini request failed";
+    throw new Error(`${message}\n\nModel: ${model}`);
+  }
+
+  if (!response.body) {
+    throw new Error(`Gemini streaming response body missing\n\nModel: ${model}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullText = "";
+
+  const flushEvent = async (rawEvent: string) => {
+    const lines = rawEvent
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const dataLines = lines
+      .filter((l) => l.startsWith("data:"))
+      .map((l) => l.slice("data:".length).trim())
+      .filter(Boolean);
+    if (!dataLines.length) return;
+    const data = dataLines.join("\n");
+    if (data === "[DONE]") return;
+    const payload = JSON.parse(data) as
+      | {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        }
+      | null;
+    const next = payload?.candidates?.[0]?.content?.parts?.map((p) => p.text).filter(Boolean).join("") ?? "";
+    if (!next) return;
+    const delta = next.startsWith(fullText) ? next.slice(fullText.length) : next;
+    if (delta) {
+      fullText = next;
+      await args.onDelta(delta);
+    } else {
+      fullText = next;
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    while (true) {
+      const sep = buffer.indexOf("\n\n");
+      if (sep === -1) break;
+      const rawEvent = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      if (rawEvent.trim()) {
+        await flushEvent(rawEvent);
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    await flushEvent(buffer);
+  }
+
+  if (!fullText.trim()) throw new Error("Gemini returned an empty response");
+  return { text: fullText.trim() };
+}
+
 async function runDeepSeekChatCompletion(args: {
   apiKey: string;
   model: string;
@@ -1008,6 +1104,7 @@ async function runOpenRouterChatCompletionStream(args: {
 export const sendThreadMessage = action({
   args: {
     threadId: v.id("threads"),
+    promptMessageId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ ok: true }> => {
     const identity = await ctx.auth.getUserIdentity();
@@ -1026,243 +1123,370 @@ export const sendThreadMessage = action({
       throw new Error("Unauthorized");
     }
 
-    const latestText = getLatestUserText(context.messages ?? []);
-    const cleaned = stripProviderMention(latestText);
-    if (!cleaned.trim()) {
-      throw new Error("Cannot send an empty message");
-    }
+    const promptMessageId =
+      args.promptMessageId ??
+      ([...(context.messages ?? [])].reverse().find((m) => m.role === "user")?.id as string | undefined);
+    if (!promptMessageId) throw new Error("No user message to answer");
 
-    const allowedProviders = (context.deepDive.providers?.length ? context.deepDive.providers : DEFAULT_PROVIDERS)
-      .map((provider) => normalizeProviderId(provider))
-      .filter((provider): provider is AIProvider => Boolean(provider));
-    const effectiveAllowed = allowedProviders.length ? allowedProviders : [...DEFAULT_PROVIDERS];
-    const explicit = parseExplicitProvider(latestText);
-    const picked = pickBestProvider({
-      prompt: cleaned,
-      history: (context.messages ?? []).slice(0, -1) as DeepDiveUIMessage[],
-      allowed: effectiveAllowed,
-    });
-    const chosenProvider = explicit && effectiveAllowed.includes(explicit) ? explicit : picked.provider;
-    const chosenModel =
-      MODEL_BY_PROVIDER[chosenProvider] ??
-      MODEL_BY_PROVIDER.nemotron ??
-      DEFAULT_MODEL;
-    let routingNote =
-      explicit && effectiveAllowed.includes(explicit)
-        ? undefined
-        : `Answered by ${providerDisplayName(chosenProvider)} for ${picked.reason}.`;
+    const meta = await ctx.runQuery(internal.deepDives.getThreadMessageMeta, { threadId: args.threadId, messageId: promptMessageId });
+    if (!meta) throw new Error("Prompt message not found");
+    if (meta.message.role !== "user") throw new Error("Prompt message must be a user message");
 
-    const openRouterApiKey = await resolveOpenRouterKey(ctx).catch(() => "");
-    const geminiApiKey = await resolveGeminiKey(ctx).catch(() => "");
-    const deepSeekApiKey = await resolveDeepSeekKey(ctx).catch(() => "");
-    const rawMessages = (context.messages ?? []) as DeepDiveUIMessage[];
-    const normalizedMessages: DeepDiveUIMessage[] = rawMessages.map((message) => {
-      if (message.role !== "user") return message;
-      const nextParts = message.parts.map((part) => {
-        if (part.type === "text" && part.text === latestText) {
-          return { ...part, text: cleaned };
-        }
-        return part;
-      });
-      return { ...message, parts: nextParts };
+    const user = await ctx.runMutation(internal.deepDives.ensureUserForTokenIdentifier, {
+      tokenIdentifier: identity.tokenIdentifier,
+      name: identity.name,
+      email: identity.email,
+      image: identity.pictureUrl,
     });
 
-    const providerOrder: AIProvider[] = [
-      chosenProvider,
-      ...effectiveAllowed.filter((provider) => provider !== chosenProvider),
-    ];
-    const candidateEntries: Array<{ provider: AIProvider; model: string }> = [];
-    const seenModels = new Set<string>();
-    for (const provider of providerOrder) {
-      const isGemini = provider.startsWith("gemini-");
-      const isDeepSeek = provider.startsWith("deepseek-");
-      if (isGemini && !geminiApiKey) continue;
-      if (isDeepSeek && !deepSeekApiKey) continue;
-      if (!isGemini && !isDeepSeek && !openRouterApiKey) continue;
-      const model = (MODEL_BY_PROVIDER[provider] ?? DEFAULT_MODEL).trim();
-      if (!model || seenModels.has(model)) continue;
-      seenModels.add(model);
-      candidateEntries.push({ provider, model });
-    }
-    if (candidateEntries.length === 0) {
-      throw new Error("No usable model providers are configured. Add an OpenRouter, Gemini, or DeepSeek API key in AI Settings.");
-    }
-
-    let text = "";
-    let answeredByProvider = chosenProvider;
-    let answeredByModel = chosenModel;
-    let lastError: unknown = null;
-    const assistantMessageId = `msg-${Date.now()}-assistant`;
-
-    for (const candidate of candidateEntries) {
-      const model = candidate.model;
-      const provider = candidate.provider;
-      try {
-        await ctx.runMutation(internal.deepDives.createAssistantDraft, {
-          threadId: args.threadId,
-          messageId: assistantMessageId,
-          provider,
-          model,
-          routingNote,
-        });
-        await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
-          threadId: args.threadId,
-          messageId: assistantMessageId,
-          text: "",
-          done: false,
-          provider,
-          model,
-          routingNote,
-        });
-
-        if (provider.startsWith("gemini-")) {
-          text = await runGeminiGenerateContent({
-            apiKey: geminiApiKey,
-            model,
-            messages: [formattingSystemMessage(), ...normalizedMessages],
-          });
-        } else if (provider.startsWith("deepseek-")) {
-          let streamed = "";
-          let lastFlushed = "";
-          let lastFlushAt = 0;
-          const flushDraft = async (force = false) => {
-            if (!force) {
-              const elapsed = Date.now() - lastFlushAt;
-              const deltaChars = streamed.length - lastFlushed.length;
-              if (elapsed < 600 && deltaChars < 120) return;
-            }
-            if (streamed === lastFlushed && !force) return;
-            await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
-              threadId: args.threadId,
-              messageId: assistantMessageId,
-              text: streamed,
-              done: false,
-              provider,
-              model,
-              routingNote,
-            });
-            lastFlushed = streamed;
-            lastFlushAt = Date.now();
-          };
-
-          const result = await runDeepSeekChatCompletionStream({
-            apiKey: deepSeekApiKey,
-            model,
-            messages: [formattingSystemMessage(), ...normalizedMessages],
-            onDelta: async (delta) => {
-              streamed += delta;
-              await flushDraft(false);
-            },
-          });
-          text = result.text;
-
-          await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
-            threadId: args.threadId,
-            messageId: assistantMessageId,
-            text,
-            done: true,
-            provider,
-            model,
-            routingNote,
-          });
-          answeredByProvider = provider;
-          answeredByModel = model;
-          break;
-        } else {
-          let streamed = "";
-          let lastFlushed = "";
-          let lastFlushAt = 0;
-          const flushDraft = async (force = false) => {
-            if (!force) {
-              const elapsed = Date.now() - lastFlushAt;
-              const deltaChars = streamed.length - lastFlushed.length;
-              if (elapsed < 600 && deltaChars < 120) return;
-            }
-            if (streamed === lastFlushed && !force) return;
-            await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
-              threadId: args.threadId,
-              messageId: assistantMessageId,
-              text: streamed,
-              done: false,
-              provider,
-              model,
-              routingNote,
-            });
-            lastFlushed = streamed;
-            lastFlushAt = Date.now();
-          };
-
-          const result = await runOpenRouterChatCompletionStream({
-            apiKey: openRouterApiKey,
-            model,
-            messages: [formattingSystemMessage(), ...normalizedMessages],
-            onDelta: async (delta) => {
-              streamed += delta;
-              await flushDraft(false);
-            },
-          });
-          text = result.text;
-          const reasoningTokens = result.reasoningTokens;
-
-          await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
-            threadId: args.threadId,
-            messageId: assistantMessageId,
-            text,
-            done: true,
-            provider,
-            model,
-            routingNote,
-            reasoningTokens,
-          });
-          answeredByProvider = provider;
-          answeredByModel = model;
-          break;
-        }
-
-        await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
-          threadId: args.threadId,
-          messageId: assistantMessageId,
-          text,
-          done: true,
-          provider,
-          model,
-          routingNote,
-        });
-        answeredByProvider = provider;
-        answeredByModel = model;
-        break;
-      } catch (error) {
-        lastError = error;
-        if (!isRetryableModelError(error)) {
-          throw error;
-        }
-      }
-    }
-
-    if (!text) {
-      if (lastError instanceof Error) throw lastError;
-      throw new Error("Unable to generate a response with the available models.");
-    }
-
-    if (answeredByProvider !== chosenProvider && !explicit) {
-      if (isPrivacyBlockedError(lastError)) {
-        routingNote = `Answered by ${providerDisplayName(answeredByProvider)} because ${providerDisplayName(chosenProvider)} was unavailable under current privacy policy.`;
-      } else {
-        routingNote = `Answered by ${providerDisplayName(answeredByProvider)} because ${providerDisplayName(chosenProvider)} was temporarily unavailable.`;
-      }
-    }
-
-    await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+    await ctx.runMutation(internal.deepDives.enqueueThreadAiJob, {
       threadId: args.threadId,
-      messageId: assistantMessageId,
-      text,
-      done: true,
-      provider: answeredByProvider,
-      model: answeredByModel,
-      routingNote,
+      promptMessageId,
+      promptCreatedAt: meta.createdAt,
+      requestedByUserId: user.userId,
     });
 
+    await ctx.runAction(internal.ai.processThreadAiQueue, { threadId: args.threadId });
     return { ok: true };
+  },
+});
+
+export const processThreadAiQueue = internalAction({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { ok: true, acquired: false };
+
+    const workerId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    const lock = await ctx.runMutation(internal.deepDives.tryAcquireThreadAiLock, { threadId: args.threadId, workerId });
+    if (!lock.ok) return { ok: true, acquired: false };
+
+    try {
+      const openRouterApiKey = await resolveOpenRouterKey(ctx).catch(() => "");
+      const geminiApiKey = await resolveGeminiKey(ctx).catch(() => "");
+      const deepSeekApiKey = await resolveDeepSeekKey(ctx).catch(() => "");
+
+      const maxJobs = 12;
+      for (let i = 0; i < maxJobs; i += 1) {
+        const claim = await ctx.runMutation(internal.deepDives.claimNextThreadAiJob, { threadId: args.threadId, workerId });
+        const job = claim.job;
+        if (!job) break;
+
+        const jobId = job._id;
+        const promptMessageId = job.promptMessageId;
+        const promptCreatedAt = job.promptCreatedAt;
+
+        try {
+          const context = await ctx.runQuery(internal.deepDives.getThreadContextUpTo, { threadId: args.threadId, upToCreatedAt: promptCreatedAt });
+          if (!context?.thread || !context.deepDive) {
+            throw new Error("Thread not found");
+          }
+
+          const role = await ctx.runQuery(internal.deepDives.getRoleForTokenIdentifierInDeepDive, {
+            deepDiveId: context.deepDive._id,
+            tokenIdentifier: identity.tokenIdentifier,
+          });
+          if (!role || (role !== "owner" && role !== "editor" && role !== "commenter")) {
+            throw new Error("Unauthorized");
+          }
+
+          const rawMessages = (context.messages ?? []) as DeepDiveUIMessage[];
+          const promptIndex = rawMessages.findIndex((m) => m.id === promptMessageId);
+          const promptMessage = promptIndex >= 0 ? rawMessages[promptIndex] : null;
+          if (!promptMessage || promptMessage.role !== "user") throw new Error("Prompt message not found");
+
+          const latestText = joinAllowedPartText(promptMessage, ["text"]);
+          const cleaned = stripProviderMention(latestText);
+          if (!cleaned.trim()) throw new Error("Cannot send an empty message");
+
+          const allowedProviders = (context.deepDive.providers?.length ? context.deepDive.providers : DEFAULT_PROVIDERS)
+            .map((provider) => normalizeProviderId(provider))
+            .filter((provider): provider is AIProvider => Boolean(provider));
+          const effectiveAllowed = allowedProviders.length ? allowedProviders : [...DEFAULT_PROVIDERS];
+          const explicit = parseExplicitProvider(latestText);
+          const picked = pickBestProvider({
+            prompt: cleaned,
+            history: (promptIndex >= 0 ? rawMessages.slice(0, promptIndex) : rawMessages.slice(0, -1)) as DeepDiveUIMessage[],
+            allowed: effectiveAllowed,
+          });
+          const chosenProvider = explicit && effectiveAllowed.includes(explicit) ? explicit : picked.provider;
+          const chosenModel =
+            MODEL_BY_PROVIDER[chosenProvider] ??
+            MODEL_BY_PROVIDER.nemotron ??
+            DEFAULT_MODEL;
+          let routingNote =
+            explicit && effectiveAllowed.includes(explicit)
+              ? undefined
+              : `Answered by ${providerDisplayName(chosenProvider)} for ${picked.reason}.`;
+
+          const normalizedMessages: DeepDiveUIMessage[] = rawMessages.map((message) => {
+            if (message.id !== promptMessageId) return message;
+            const nextParts = message.parts.map((part) => {
+              if (part.type === "text" && part.text === latestText) {
+                return { ...part, text: cleaned };
+              }
+              return part;
+            });
+            return { ...message, parts: nextParts };
+          });
+
+          const providerOrder: AIProvider[] = [
+            chosenProvider,
+            ...effectiveAllowed.filter((provider) => provider !== chosenProvider),
+          ];
+          const candidateEntries: Array<{ provider: AIProvider; model: string }> = [];
+          const seenModels = new Set<string>();
+          for (const provider of providerOrder) {
+            const isGemini = provider.startsWith("gemini-");
+            const isDeepSeek = provider.startsWith("deepseek-");
+            if (isGemini && !geminiApiKey) continue;
+            if (isDeepSeek && !deepSeekApiKey) continue;
+            if (!isGemini && !isDeepSeek && !openRouterApiKey) continue;
+            const model = (MODEL_BY_PROVIDER[provider] ?? DEFAULT_MODEL).trim();
+            if (!model || seenModels.has(model)) continue;
+            seenModels.add(model);
+            candidateEntries.push({ provider, model });
+          }
+          if (candidateEntries.length === 0) {
+            throw new Error("No usable model providers are configured. Add an OpenRouter, Gemini, or DeepSeek API key in AI Settings.");
+          }
+
+          let text = "";
+          let answeredByProvider = chosenProvider;
+          let answeredByModel = chosenModel;
+          let lastError: unknown = null;
+          const assistantMessageId = `msg-${promptCreatedAt}-${workerId.slice(0, 6)}-assistant`;
+          const assistantCreatedAt = promptCreatedAt + 1;
+
+          for (const candidate of candidateEntries) {
+            const model = candidate.model;
+            const provider = candidate.provider;
+            try {
+              await ctx.runMutation(internal.deepDives.createAssistantDraft, {
+                threadId: args.threadId,
+                messageId: assistantMessageId,
+                provider,
+                model,
+                routingNote,
+                createdAt: assistantCreatedAt,
+                replyToMessageId: promptMessageId,
+                replyToExcerpt: cleaned.slice(0, 140),
+              });
+              await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+                threadId: args.threadId,
+                messageId: assistantMessageId,
+                text: "",
+                done: false,
+                provider,
+                model,
+                routingNote,
+              });
+
+              if (provider.startsWith("gemini-")) {
+                let streamed = "";
+                let lastFlushed = "";
+                let lastFlushAt = 0;
+                const flushDraft = async (force = false) => {
+                  if (!force) {
+                    const elapsed = Date.now() - lastFlushAt;
+                    const deltaChars = streamed.length - lastFlushed.length;
+                    if (elapsed < 600 && deltaChars < 120) return;
+                  }
+                  if (streamed === lastFlushed && !force) return;
+                  await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+                    threadId: args.threadId,
+                    messageId: assistantMessageId,
+                    text: streamed,
+                    done: false,
+                    provider,
+                    model,
+                    routingNote,
+                  });
+                  lastFlushed = streamed;
+                  lastFlushAt = Date.now();
+                };
+
+                const result = await runGeminiGenerateContentStream({
+                  apiKey: geminiApiKey,
+                  model,
+                  messages: [formattingSystemMessage(), ...normalizedMessages],
+                  onDelta: async (delta) => {
+                    streamed += delta;
+                    await flushDraft(false);
+                  },
+                });
+                text = result.text;
+
+                await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+                  threadId: args.threadId,
+                  messageId: assistantMessageId,
+                  text,
+                  done: true,
+                  provider,
+                  model,
+                  routingNote,
+                });
+                answeredByProvider = provider;
+                answeredByModel = model;
+                break;
+              } else if (provider.startsWith("deepseek-")) {
+                let streamed = "";
+                let lastFlushed = "";
+                let lastFlushAt = 0;
+                const flushDraft = async (force = false) => {
+                  if (!force) {
+                    const elapsed = Date.now() - lastFlushAt;
+                    const deltaChars = streamed.length - lastFlushed.length;
+                    if (elapsed < 600 && deltaChars < 120) return;
+                  }
+                  if (streamed === lastFlushed && !force) return;
+                  await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+                    threadId: args.threadId,
+                    messageId: assistantMessageId,
+                    text: streamed,
+                    done: false,
+                    provider,
+                    model,
+                    routingNote,
+                  });
+                  lastFlushed = streamed;
+                  lastFlushAt = Date.now();
+                };
+
+                const result = await runDeepSeekChatCompletionStream({
+                  apiKey: deepSeekApiKey,
+                  model,
+                  messages: [formattingSystemMessage(), ...normalizedMessages],
+                  onDelta: async (delta) => {
+                    streamed += delta;
+                    await flushDraft(false);
+                  },
+                });
+                text = result.text;
+
+                await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+                  threadId: args.threadId,
+                  messageId: assistantMessageId,
+                  text,
+                  done: true,
+                  provider,
+                  model,
+                  routingNote,
+                });
+                answeredByProvider = provider;
+                answeredByModel = model;
+                break;
+              } else {
+                let streamed = "";
+                let lastFlushed = "";
+                let lastFlushAt = 0;
+                const flushDraft = async (force = false) => {
+                  if (!force) {
+                    const elapsed = Date.now() - lastFlushAt;
+                    const deltaChars = streamed.length - lastFlushed.length;
+                    if (elapsed < 600 && deltaChars < 120) return;
+                  }
+                  if (streamed === lastFlushed && !force) return;
+                  await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+                    threadId: args.threadId,
+                    messageId: assistantMessageId,
+                    text: streamed,
+                    done: false,
+                    provider,
+                    model,
+                    routingNote,
+                  });
+                  lastFlushed = streamed;
+                  lastFlushAt = Date.now();
+                };
+
+                const result = await runOpenRouterChatCompletionStream({
+                  apiKey: openRouterApiKey,
+                  model,
+                  messages: [formattingSystemMessage(), ...normalizedMessages],
+                  onDelta: async (delta) => {
+                    streamed += delta;
+                    await flushDraft(false);
+                  },
+                });
+                text = result.text;
+                const reasoningTokens = result.reasoningTokens;
+
+                await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+                  threadId: args.threadId,
+                  messageId: assistantMessageId,
+                  text,
+                  done: true,
+                  provider,
+                  model,
+                  routingNote,
+                  reasoningTokens,
+                });
+                answeredByProvider = provider;
+                answeredByModel = model;
+                break;
+              }
+
+              await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+                threadId: args.threadId,
+                messageId: assistantMessageId,
+                text,
+                done: true,
+                provider,
+                model,
+                routingNote,
+              });
+              answeredByProvider = provider;
+              answeredByModel = model;
+              break;
+            } catch (error) {
+              lastError = error;
+              if (!isRetryableModelError(error)) {
+                throw error;
+              }
+            }
+          }
+
+          if (!text) {
+            if (lastError instanceof Error) throw lastError;
+            throw new Error("Unable to generate a response with the available models.");
+          }
+
+          if (answeredByProvider !== chosenProvider && !explicit) {
+            if (isPrivacyBlockedError(lastError)) {
+              routingNote = `Answered by ${providerDisplayName(answeredByProvider)} because ${providerDisplayName(chosenProvider)} was unavailable under current privacy policy.`;
+            } else {
+              routingNote = `Answered by ${providerDisplayName(answeredByProvider)} because ${providerDisplayName(chosenProvider)} was temporarily unavailable.`;
+            }
+          }
+
+          await ctx.runMutation(internal.deepDives.updateAssistantDraft, {
+            threadId: args.threadId,
+            messageId: assistantMessageId,
+            text,
+            done: true,
+            provider: answeredByProvider,
+            model: answeredByModel,
+            routingNote,
+          });
+
+          await ctx.runMutation(internal.deepDives.markThreadAiJobDone, { jobId, assistantMessageId });
+        } catch (error) {
+          await ctx.runMutation(internal.deepDives.markThreadAiJobFailed, {
+            jobId,
+            error: error instanceof Error ? error.message : "Failed to generate reply",
+          });
+        }
+      }
+
+      return { ok: true, acquired: true };
+    } finally {
+      await ctx.runMutation(internal.deepDives.releaseThreadAiLock, { threadId: args.threadId, workerId });
+    }
   },
 });
 
@@ -1311,20 +1535,21 @@ export const runVote = action({
         throw new Error("No vote providers are configured. Add an OpenRouter, Gemini, or DeepSeek API key in AI Settings.");
       }
 
+      const orderedProviders = sortProvidersBySpeed(effectiveParticipants);
+      const candidates = candidateModelsFromProviders(orderedProviders);
+      const statusProvider = orderedProviders[0] ?? effectiveParticipants[0] ?? "nemotron";
+
       await ctx.runMutation(internal.deepDives.setVoteResults, {
         threadId: args.threadId,
         voteResults: [
           {
-            provider: "glm-air",
+            provider: statusProvider,
             response: `Running vote (${mode})...`,
             reasoning: "In progress",
             votes: [],
           },
         ],
       });
-
-      const orderedProviders = sortProvidersBySpeed(effectiveParticipants);
-      const candidates = candidateModelsFromProviders(orderedProviders);
 
       const round1Settled = await Promise.allSettled(
         candidates.map((candidate) =>
@@ -1470,7 +1695,7 @@ export const runVote = action({
           threadId: args.threadId,
           voteResults: [
             {
-              provider: "glm-air",
+              provider: "nemotron",
               response: "Vote failed.",
               reasoning: message,
               votes: [],
@@ -1526,179 +1751,108 @@ export const runDebate = action({
         geminiApiKey,
         deepSeekApiKey,
       });
-      const effectiveParticipants = sortProvidersBySpeed(keyReadyParticipants).slice(0, cfg.members);
+      const effectiveParticipants = sortProvidersBySpeed(keyReadyParticipants);
       if (effectiveParticipants.length === 0) {
         throw new Error("No debate providers are configured. Add an OpenRouter, Gemini, or DeepSeek API key in AI Settings.");
       }
-      const orderedProviders = sortProvidersBySpeed(effectiveParticipants);
-      const candidates = candidateModelsFromProviders(orderedProviders);
-
-      const transcript: Array<{ from: AIProvider; content: string }> = [];
-      const teamworkMessages: Array<{ id: string; from: AIProvider; to: "all"; content: string; timestamp: number }> = [];
-
-      teamworkMessages.push({
-        id: `team-${Date.now()}-status`,
-        from: "glm-air",
-        to: "all",
-        content: `Running debate (${mode})...`,
-        timestamp: Date.now(),
-      });
-      await ctx.runMutation(internal.deepDives.setTeamworkMessages, {
-        threadId: args.threadId,
-        teamworkMessages,
-      });
-
-      const round1Settled = await Promise.allSettled(
-        candidates.map((candidate) =>
-          withTimeout(
-            runCouncilMember({
-              openRouterApiKey,
-              geminiApiKey,
-              deepSeekApiKey,
-              prompt: args.prompt,
-              phase: "round1",
-              candidate,
-              allowedProviders: orderedProviders,
-              temperature: 0.55,
-            }),
-            cfg.perCallTimeoutMs,
-            `Council member ${candidate.provider}`,
-          ),
-        ),
+      const orderedProviders = sortProvidersBySpeed(
+        args.participants?.length ? effectiveParticipants : effectiveParticipants.slice(0, cfg.members),
       );
-      const round1: CouncilMemberResponse[] = round1Settled
-        .flatMap((r) => (r.status === "fulfilled" ? [r.value] : []))
-        .map((r) => ({
-          provider: r.provider,
-          model: r.model,
-          raw: r.raw,
-          position: r.position,
-          confidencePct: r.confidencePct,
-        }));
-
-      for (const r of round1) {
-        teamworkMessages.push({
-          id: `team-${Date.now()}-r1-${r.provider}`,
-          from: r.provider,
-          to: "all",
-          content: r.raw,
-          timestamp: Date.now(),
-        });
-        transcript.push({ from: r.provider, content: r.raw });
+      if (orderedProviders.length === 0) {
+        throw new Error("No debate providers are configured. Add an OpenRouter, Gemini, or DeepSeek API key in AI Settings.");
       }
+
+      const sideA: AIProvider[] = [];
+      const sideB: AIProvider[] = [];
+      orderedProviders.forEach((p, idx) => {
+        if (idx % 2 === 0) sideA.push(p);
+        else sideB.push(p);
+      });
+      const aLead = sideA[0] ?? orderedProviders[0];
+      const bLead = sideB[0] ?? orderedProviders[1] ?? orderedProviders[0];
+
+      const teamworkMessages: Array<{
+        id: string;
+        from: AIProvider;
+        to: AIProvider | "all";
+        content: string;
+        timestamp: number;
+      }> = [];
       await ctx.runMutation(internal.deepDives.setTeamworkMessages, {
         threadId: args.threadId,
         teamworkMessages,
       });
 
-      if (round1.length === 0) throw new Error("Debate unavailable right now. Please try again.");
-
-      let pmSynthesis = await withTimeout(
-        runChatCompletionWithFallback({
-          openRouterApiKey,
-          geminiApiKey,
-          preferredProvider: orderedProviders[0] ?? "gemini-3-flash",
-          allowedProviders: orderedProviders,
-          temperature: 0.2,
-          messages: [
-            userPromptMessage(
-              "debate-pm-r1",
-              pmSynthesisPrompt({ prompt: args.prompt, memberResponses: round1, roundLabel: "Round 1" }),
-            ),
-          ],
-        }),
-        cfg.perCallTimeoutMs,
-        "Debate PM synthesis round 1",
-      );
-      teamworkMessages.push({
-        id: `team-${Date.now()}-pm-r1`,
-        from: pmSynthesis.provider,
-        to: "all",
-        content: pmSynthesis.text,
-        timestamp: Date.now(),
-      });
-      await ctx.runMutation(internal.deepDives.setTeamworkMessages, {
-        threadId: args.threadId,
-        teamworkMessages,
-      });
-
-      for (let round = 2; round <= cfg.debateRounds + 1; round += 1) {
-        const transcriptText = transcript
-          .slice(-8)
-          .map((t) => `${t.from}:\n${t.content}`)
-          .join("\n\n---\n\n");
-        const roundSettled = await Promise.allSettled(
-          candidates.map((candidate) =>
-            withTimeout(
-              runCouncilMember({
-                openRouterApiKey,
-                geminiApiKey,
-                deepSeekApiKey,
-                prompt: `${args.prompt}\n\nPM synthesis so far:\n${pmSynthesis.text}`,
-                phase: "round2",
-                candidate,
-                allowedProviders: orderedProviders,
-                transcript: transcriptText,
-                temperature: 0.5,
-              }),
-              cfg.perCallTimeoutMs,
-              `Council member ${candidate.provider} (round ${round})`,
-            ),
-          ),
-        );
-        const roundResponses: CouncilMemberResponse[] = roundSettled
-          .flatMap((r) => (r.status === "fulfilled" ? [r.value] : []))
-          .map((r) => ({
-            provider: r.provider,
-            model: r.model,
-            raw: r.raw,
-            position: r.position,
-            confidencePct: r.confidencePct,
-          }));
-
-        for (const r of roundResponses) {
-          teamworkMessages.push({
-            id: `team-${Date.now()}-r${round}-${r.provider}`,
-            from: r.provider,
-            to: "all",
-            content: r.raw,
-            timestamp: Date.now(),
-          });
-          transcript.push({ from: r.provider, content: r.raw });
-        }
-        if (roundResponses.length > 0) {
-          pmSynthesis = await withTimeout(
-            runChatCompletionWithFallback({
-              openRouterApiKey,
-              geminiApiKey,
-              deepSeekApiKey,
-              preferredProvider: orderedProviders[0] ?? "gemini-3-flash",
-              allowedProviders: orderedProviders,
-              temperature: 0.2,
-              messages: [
-                userPromptMessage(
-                  `debate-pm-r${round}`,
-                  pmSynthesisPrompt({ prompt: args.prompt, memberResponses: roundResponses, roundLabel: `Round ${round}` }),
-                ),
-              ],
-            }),
-            cfg.perCallTimeoutMs,
-            `Debate PM synthesis round ${round}`,
-          );
-          teamworkMessages.push({
-            id: `team-${Date.now()}-pm-r${round}`,
-            from: pmSynthesis.provider,
-            to: "all",
-            content: pmSynthesis.text,
-            timestamp: Date.now(),
-          });
-        }
+      const transcript: Array<{ from: AIProvider; to: AIProvider | "all"; content: string }> = [];
+      const pushMessage = async (m: { id: string; from: AIProvider; to: AIProvider | "all"; content: string; timestamp: number }) => {
+        teamworkMessages.push(m);
+        transcript.push({ from: m.from, to: m.to, content: m.content });
         await ctx.runMutation(internal.deepDives.setTeamworkMessages, {
           threadId: args.threadId,
           teamworkMessages,
         });
+      };
+
+      const turns = mode === "quick" ? 4 : mode === "thorough" ? 8 : 6;
+      let lastOpponentText = "";
+      for (let turn = 0; turn < turns; turn += 1) {
+        const isATurn = turn % 2 === 0;
+        const side = isATurn ? sideA : sideB.length ? sideB : sideA;
+        const from = side[Math.floor(turn / 2) % Math.max(1, side.length)] ?? orderedProviders[0];
+        const to = isATurn ? bLead : aLead;
+
+        const roleLabel = isATurn ? "Side A" : "Side B";
+        const promptText =
+          turn === 0
+            ? `Debate topic:\n${args.prompt}\n\nWrite ${roleLabel}'s opening. Start with **Position:** and keep it concise.`
+            : `Debate topic:\n${args.prompt}\n\nOpponent last message:\n${lastOpponentText}\n\nWrite ${roleLabel}'s response. Start with **Rebuttal:** then **Counterpoint:**. Keep it concise.`;
+
+        try {
+          const model = (MODEL_BY_PROVIDER[from] ?? DEFAULT_MODEL).trim();
+          const text = await withTimeout(
+            runChatCompletion({
+              provider: from,
+              model,
+              messages: [
+                formattingSystemMessage(),
+                {
+                  id: `debate-system-${turn}`,
+                  role: "system",
+                  parts: [
+                    {
+                      type: "text",
+                      text:
+                        "You are in a two-sided debate. Be direct and rigorous. No filler. Use Markdown. Prefer bullets. Avoid repeating the opponent verbatim.",
+                    },
+                  ],
+                } as DeepDiveUIMessage,
+                userPromptMessage(`debate-turn-${turn}`, promptText),
+              ],
+              temperature: 0.6,
+              openRouterApiKey,
+              geminiApiKey,
+              deepSeekApiKey,
+            }),
+            cfg.perCallTimeoutMs,
+            `Debate turn ${turn + 1} (${from})`,
+          );
+          await pushMessage({
+            id: `team-${Date.now()}-turn-${turn}-${from}`,
+            from,
+            to,
+            content: text,
+            timestamp: Date.now(),
+          });
+          lastOpponentText = text;
+        } catch (e) {
+          void e;
+        }
       }
 
+      const transcriptText = transcript
+        .map((t) => `${t.from} → ${t.to}:\n${t.content}`)
+        .join("\n\n---\n\n")
+        .trim();
       const finalConsensus = await withTimeout(
         runChatCompletionWithFallback({
           openRouterApiKey,
@@ -1710,7 +1864,7 @@ export const runDebate = action({
           messages: [
             userPromptMessage(
               "debate-final",
-              `Write a concise final conclusion based on the council.\n\nPrompt:\n${args.prompt}\n\nLatest PM synthesis:\n${pmSynthesis.text}\n\nOutput:\n## Final Consensus\n- Recommendation\n- Key reasons\n- Remaining disagreement (if any)`,
+              `Synthesize the debate into a concise conclusion.\n\nPrompt:\n${args.prompt}\n\nDebate transcript:\n${transcriptText}\n\nOutput exactly:\n## Final Consensus\n- Recommendation\n- Key reasons\n- Remaining disagreement (if any)`,
             ),
           ],
         }),
@@ -1724,34 +1878,6 @@ export const runDebate = action({
         content: finalConsensus.text,
         timestamp: Date.now(),
       });
-
-      if (cfg.includeFreshEyes) {
-        const freshEyes = await withTimeout(
-          runChatCompletionWithFallback({
-            openRouterApiKey,
-            geminiApiKey,
-            deepSeekApiKey,
-            preferredProvider: orderedProviders[0] ?? "gemini-3-flash",
-            allowedProviders: orderedProviders,
-            temperature: 0.25,
-            messages: [
-              userPromptMessage("debate-fresh-eyes", freshEyesPrompt({ prompt: args.prompt, finalAnswer: finalConsensus.text })),
-            ],
-          }),
-          cfg.perCallTimeoutMs,
-          "Debate fresh-eyes",
-        ).catch(() => null);
-        if (freshEyes) {
-          teamworkMessages.push({
-            id: `team-${Date.now()}-fresh-eyes`,
-            from: freshEyes.provider,
-            to: "all",
-            content: `## Fresh Eyes\n${freshEyes.text}`,
-            timestamp: Date.now(),
-          });
-        }
-      }
-
       await ctx.runMutation(internal.deepDives.setTeamworkMessages, {
         threadId: args.threadId,
         teamworkMessages,
@@ -1764,7 +1890,7 @@ export const runDebate = action({
           teamworkMessages: [
             {
               id: `team-${Date.now()}-error`,
-              from: "glm-air",
+              from: "nemotron",
               to: "all",
               content: `Debate failed.\n\n${message}`,
               timestamp: Date.now(),

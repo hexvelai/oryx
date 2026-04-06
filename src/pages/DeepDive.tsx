@@ -108,6 +108,15 @@ function renderMarkdown(content: string) {
           </code>
         ),
         pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-xl bg-muted p-3">{children}</pre>,
+        table: ({ children }) => (
+          <div className="my-3 overflow-x-auto">
+            <table className="w-full border-collapse text-sm">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => <thead className="bg-muted/40">{children}</thead>,
+        tr: ({ children }) => <tr className="border-b border-border/50 last:border-b-0">{children}</tr>,
+        th: ({ children }) => <th className="px-2 py-1.5 text-left text-xs font-semibold text-muted-foreground">{children}</th>,
+        td: ({ children }) => <td className="px-2 py-1.5 align-top">{children}</td>,
       }}
     >
       {content}
@@ -153,6 +162,29 @@ function shouldSuggestVote(text: string) {
   return hasChoicePattern || explicitMultiChoice;
 }
 
+function shouldSuggestDebate(text: string) {
+  const normalized = text.toLowerCase().trim();
+  if (!normalized) return false;
+  const probing =
+    normalized.includes("why do you think") ||
+    normalized.includes("is it true that") ||
+    normalized.includes("convince me") ||
+    normalized.includes("argue for") ||
+    normalized.includes("argue against") ||
+    normalized.includes("take both sides") ||
+    normalized.includes("steelman") ||
+    normalized.includes("devil's advocate") ||
+    normalized.includes("debate");
+  const sensitiveKeywords = [
+    "politic", "election", "religion", "race", "racism", "gender", "trans", "lgbt",
+    "abortion", "gun", "immigration", "war", "israel", "palestine", "genocide",
+    "suicide", "self-harm", "drugs", "illegal", "crime", "sexual", "harassment",
+  ];
+  const sensitive = sensitiveKeywords.some((k) => normalized.includes(k));
+  const phrasedAsQuestion = normalized.includes("?");
+  return probing || (sensitive && phrasedAsQuestion);
+}
+
 export default function DeepDive() {
   type CouncilMode = "quick" | "balanced" | "thorough";
   const navigate = useNavigate();
@@ -172,6 +204,7 @@ export default function DeepDive() {
   const deleteDeepDive = useConvexMutation(convexApi.deepDives.deleteDeepDive);
   const leaveDeepDive = useConvexMutation(convexApi.deepDives.leaveDeepDive);
   const migrateLegacyThreadMessages = useAction(convexApi.deepDives.migrateLegacyThreadMessages);
+  const heartbeat = useConvexMutation(convexApi.deepDives.heartbeat);
 
   const [activeThreadId, setActiveThreadId] = useState<string>("");
   const [askDialog, setAskDialog] = useState<{ open: boolean; seed: DeepDiveUIMessage[]; target: AIProvider } | null>(null);
@@ -206,6 +239,7 @@ export default function DeepDive() {
   const [deletingThread, setDeletingThread] = useState(false);
   const [threadDeleteError, setThreadDeleteError] = useState<string | null>(null);
   const [pendingVotePrompt, setPendingVotePrompt] = useState<{ visible: boolean; text: string } | null>(null);
+  const [pendingDebatePrompt, setPendingDebatePrompt] = useState<{ visible: boolean; text: string } | null>(null);
   const [threadsOpen, setThreadsOpen] = usePersistedBoolean("oryx.deepDive.threads", false);
   const [notesOpen, setNotesOpen] = usePersistedBoolean("oryx.deepDive.notes", false);
 
@@ -231,6 +265,7 @@ export default function DeepDive() {
 
   useEffect(() => {
     setPendingVotePrompt(null);
+    setPendingDebatePrompt(null);
   }, [activeThreadId, deepDive?.id]);
 
   const migratedRef = useRef<Record<string, true>>({});
@@ -251,6 +286,10 @@ export default function DeepDive() {
     convexApi.deepDives.listMembers,
     deepDive ? { deepDiveId: deepDive.id } : "skip",
   ) as DeepDiveMember[] | undefined;
+  const onlineMembers = useConvexQuery(
+    convexApi.deepDives.listOnlineMembers,
+    deepDive ? { deepDiveId: deepDive.id } : "skip",
+  ) as Array<{ userId: string; name?: string; email?: string; image?: string; lastSeenAt: number }> | undefined;
   const invites = useConvexQuery(
     convexApi.deepDives.listInvites,
     deepDive && canEdit ? { deepDiveId: deepDive.id } : "skip",
@@ -264,6 +303,20 @@ export default function DeepDive() {
   useEffect(() => {
     humanEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [humanMessages?.length]);
+
+  useEffect(() => {
+    if (!deepDive) return;
+    void heartbeat({ deepDiveId: deepDive.id });
+    const id = window.setInterval(() => void heartbeat({ deepDiveId: deepDive.id }), 20_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void heartbeat({ deepDiveId: deepDive.id });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [deepDive, heartbeat]);
 
   useEffect(() => {
     if (!deepDive) return;
@@ -627,19 +680,29 @@ export default function DeepDive() {
 
     setChatError(null);
     setSendingMessage(true);
-    if (activeThread.type === "chat" && canEdit && shouldSuggestVote(trimmed)) {
-      setPendingVotePrompt({ visible: true, text: "This looks like a decision prompt. Call a vote?" });
+    if (activeThread.type === "chat" && canEdit) {
+      if (shouldSuggestVote(trimmed)) {
+        setPendingVotePrompt({ visible: true, text: "This looks like a decision prompt. Call a vote?" });
+        setPendingDebatePrompt(null);
+      } else if (shouldSuggestDebate(trimmed)) {
+        setPendingDebatePrompt({ visible: true, text: "This looks like a sensitive or probing topic. Start a debate?" });
+        setPendingVotePrompt(null);
+      } else {
+        setPendingVotePrompt(null);
+        setPendingDebatePrompt(null);
+      }
     } else {
       setPendingVotePrompt(null);
+      setPendingDebatePrompt(null);
     }
     try {
-      await appendUserMessage({
+      const appended = await appendUserMessage({
         threadId: activeThread.id,
         text: trimmed,
         replyToMessageId: threadReplyTo?.messageId,
         replyToExcerpt: threadReplyTo?.excerpt,
       });
-      await sendThreadMessage({ threadId: activeThread.id });
+      await sendThreadMessage({ threadId: activeThread.id, promptMessageId: appended?.messageId ?? undefined });
       setThreadReplyTo(null);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Failed to send message";
@@ -673,7 +736,7 @@ export default function DeepDive() {
         parts: [
           {
             type: "text",
-            text: `${result.response}${result.reasoning ? `\n\n_Reasoning: ${result.reasoning}_` : ""}`,
+            text: `${result.response}${result.reasoning ? `\n\n_Reasoning: ${result.reasoning}_` : ""}${result.votes.length ? `\n\n_Voted by: ${result.votes.map((v) => AI_MODELS[v]?.name ?? v).join(", ")}_` : ""}`,
           },
         ],
       })) as DeepDiveUIMessage[];
@@ -686,6 +749,7 @@ export default function DeepDive() {
         metadata: {
           provider: message.from,
           createdAt: message.timestamp,
+          routingNote: message.to === "all" ? undefined : `→ ${AI_MODELS[message.to]?.name ?? message.to}`,
         },
         parts: [{ type: "text", text: message.content }],
       })) as DeepDiveUIMessage[];
@@ -792,7 +856,27 @@ export default function DeepDive() {
             </div>
           ),
           beforeSystemControls: (
-            <>
+            <div className="flex items-center gap-2">
+              {onlineMembers?.length ? (
+                <div className="flex -space-x-2 pr-1">
+                  {onlineMembers.slice(0, 6).map((member) => {
+                    const label = (member.name || member.email || "Member").toString();
+                    return (
+                      <div key={member.userId} title={label} className="rounded-full border border-background bg-background">
+                        <Avatar className="h-7 w-7">
+                          <AvatarImage src={member.image} />
+                          <AvatarFallback className="text-[9px] bg-muted">{initials(label)}</AvatarFallback>
+                        </Avatar>
+                      </div>
+                    );
+                  })}
+                  {onlineMembers.length > 6 ? (
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full border border-background bg-muted text-[10px] font-medium text-muted-foreground">
+                      +{onlineMembers.length - 6}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <button
                 type="button"
                 className={cn(
@@ -815,7 +899,7 @@ export default function DeepDive() {
               >
                 {notesOpen ? <PanelRightClose className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
               </button>
-            </>
+            </div>
           ),
         }}
       />
@@ -922,6 +1006,7 @@ export default function DeepDive() {
               <ThreadChatPanel
                 key={panelThread.id}
                 thread={panelThread}
+                mentionProviders={participantOrder}
                 defaultOther={defaultOther}
                 onAskOther={askOtherAI}
                 onVote={callVote}
@@ -946,6 +1031,20 @@ export default function DeepDive() {
                           setPendingVotePrompt(null);
                         },
                         onDismiss: () => setPendingVotePrompt(null),
+                      }
+                    : undefined
+                }
+                debatePrompt={
+                  pendingDebatePrompt?.visible && activeThread?.type === "chat"
+                    ? {
+                        visible: true,
+                        text: pendingDebatePrompt.text,
+                        onCallDebate: () => {
+                          if (!activeThread) return;
+                          startDebate(activeThread.messages);
+                          setPendingDebatePrompt(null);
+                        },
+                        onDismiss: () => setPendingDebatePrompt(null),
                       }
                     : undefined
                 }
