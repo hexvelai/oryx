@@ -17,6 +17,7 @@ import { Button } from "./components/ui/button";
 import { BrandLogo } from "./components/brand/BrandLogo";
 
 const queryClient = new QueryClient();
+const enableVercelAnalytics = import.meta.env.PROD && import.meta.env.VITE_ENABLE_VERCEL_ANALYTICS === "true";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -24,7 +25,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <Analytics />
+        {enableVercelAnalytics ? <Analytics /> : null}
         <BrowserRouter>
           <AuthLoading>
             <div className="flex min-h-screen items-center justify-center bg-background">

@@ -38,9 +38,18 @@
     --gradient-via: 350 30% 45%;
     --gradient-to: 20 20% 75%;
 
-    --ai-gpt: 152 60% 44%;
-    --ai-gemini: 217 72% 56%;
-    --ai-claude: 25 80% 52%;
+    --ai-nemotron: 25 80% 52%;
+    --ai-dolphin: 197 78% 50%;
+    --ai-qwen-coder: 152 60% 44%;
+    --ai-glm-air: 217 72% 56%;
+    --ai-trinity-mini: 282 70% 55%;
+    --ai-qwen-plus: 350 60% 50%;
+    --ai-step-flash: 190 84% 62%;
+    --ai-free-autorouter: 210 80% 60%;
+    --ai-gemini-flash: 48 95% 55%;
+    --ai-gemini-2-flash: 52 95% 50%;
+    --ai-deepseek-chat: 12 85% 52%;
+    --ai-deepseek-reasoner: 18 80% 45%;
     --ai-master: 350 40% 35%;
 
     --sidebar-background: 30 8% 95%;
@@ -108,12 +117,12 @@
 
   body {
     @apply min-h-screen bg-background text-foreground antialiased;
-    font-family: "Google Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: "Red Hat Display", ui-sans-serif, system-ui, sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: "Google Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: "Red Hat Display", ui-sans-serif, system-ui, sans-serif;
     letter-spacing: -0.025em;
   }
 
@@ -124,7 +133,7 @@
 
 @layer utilities {
   .font-display {
-    font-family: "Google Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: "Red Hat Display", ui-sans-serif, system-ui, sans-serif;
     font-weight: 600;
     letter-spacing: -0.03em;
   }

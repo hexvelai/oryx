@@ -6,9 +6,9 @@ import type { AIProvider, ChatMessage } from "@/types/ai";
 import { Vote, ThumbsUp, Trophy, MoreHorizontal } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ModelPicker } from "@/components/ModelPicker";
 
 export function VotingView() {
   const location = useLocation();
@@ -16,14 +16,15 @@ export function VotingView() {
   const { voteResults, sharedContext, forkThreadFromMessages, sendDeepDiveMessage, runVoteInThread, runDebateInThread, activeProviders } = useChatContext();
   const [askDialog, setAskDialog] = useState<{ open: boolean; target: AIProvider; seed: ChatMessage[] } | null>(null);
   const [debateDialog, setDebateDialog] = useState<{ open: boolean; seed: ChatMessage[] } | null>(null);
-  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(["gpt", "gemini", "claude"]);
+  const allProviders = Object.keys(AI_MODELS) as AIProvider[];
+  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(allProviders);
 
   const winner = voteResults.length > 0
     ? [...voteResults].sort((a, b) => b.votes.length - a.votes.length)[0]
     : null;
 
   const defaultOther = (provider: AIProvider) => {
-    const order: AIProvider[] = ["gpt", "gemini", "claude"];
+    const order = allProviders;
     return order[(order.indexOf(provider) + 1) % order.length];
   };
 
@@ -56,18 +57,14 @@ export function VotingView() {
   };
 
   const openDebate = (seed: ChatMessage[]) => {
-    setDebateParticipants(activeProviders.length ? activeProviders : (["gpt", "gemini", "claude"] as AIProvider[]));
+    setDebateParticipants(activeProviders.length ? activeProviders : allProviders);
     setDebateDialog({ open: true, seed });
-  };
-
-  const toggleDebater = (p: AIProvider) => {
-    setDebateParticipants(prev => (prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]));
   };
 
   const confirmDebate = () => {
     if (!debateDialog) return;
     const subject = debateDialog.seed[debateDialog.seed.length - 1]?.content.split("\n")[0]?.trim() ?? "";
-    const participants = debateParticipants.length ? debateParticipants : (["gpt", "gemini", "claude"] as AIProvider[]);
+    const participants = debateParticipants.length ? debateParticipants : allProviders;
     const { deepDiveId, threadId } = forkThreadFromMessages({ type: "teamwork", title: `Debate: ${subject.slice(0, 60)}`, seedMessages: debateDialog.seed });
     setDebateDialog(null);
     navigateToDive(deepDiveId);
@@ -201,18 +198,24 @@ export function VotingView() {
       </div>
 
       <Dialog open={!!askDialog?.open} onOpenChange={(o) => !o && setAskDialog(null)}>
-        <DialogContent>
+        <DialogContent className="border-border/50 bg-card sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Ask another AI</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
-            {(Object.keys(AI_MODELS) as AIProvider[]).map(p => (
-              <label key={p} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 cursor-pointer hover:bg-accent transition-colors">
-                <Checkbox checked={askDialog?.target === p} onCheckedChange={() => askDialog && setAskDialog({ ...askDialog, target: p })} />
-                <div className="text-sm font-medium text-foreground">{AI_MODELS[p].name}</div>
-                <div className="text-xs text-muted-foreground truncate">{AI_MODELS[p].fullName}</div>
-              </label>
-            ))}
+          <div className="h-[min(420px,calc(100vh-14rem))] min-h-[260px]">
+            <ModelPicker
+              providers={allProviders}
+              orderProviders={allProviders}
+              selectedProviders={askDialog?.target ? [askDialog.target] : []}
+              onSelectedProvidersChange={(next) => {
+                const target = next[0];
+                if (!askDialog || !target) return;
+                setAskDialog({ ...askDialog, target });
+              }}
+              multiple={false}
+              getModel={(p) => AI_MODELS[p]}
+              showCategories={false}
+            />
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setAskDialog(null)}>
@@ -226,18 +229,20 @@ export function VotingView() {
       </Dialog>
 
       <Dialog open={!!debateDialog?.open} onOpenChange={(o) => !o && setDebateDialog(null)}>
-        <DialogContent>
+        <DialogContent className="border-border/50 bg-card sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Start a debate</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
-            {(Object.keys(AI_MODELS) as AIProvider[]).map(p => (
-              <label key={p} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 cursor-pointer hover:bg-accent transition-colors">
-                <Checkbox checked={debateParticipants.includes(p)} onCheckedChange={() => toggleDebater(p)} />
-                <div className="text-sm font-medium text-foreground">{AI_MODELS[p].name}</div>
-                <div className="text-xs text-muted-foreground truncate">{AI_MODELS[p].fullName}</div>
-              </label>
-            ))}
+          <div className="h-[min(420px,calc(100vh-14rem))] min-h-[260px]">
+            <ModelPicker
+              providers={allProviders}
+              orderProviders={allProviders}
+              selectedProviders={debateParticipants}
+              onSelectedProvidersChange={setDebateParticipants}
+              multiple
+              getModel={(p) => AI_MODELS[p]}
+              showCategories={false}
+            />
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDebateDialog(null)}>

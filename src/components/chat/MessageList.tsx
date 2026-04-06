@@ -9,8 +9,8 @@ import { AI_MODELS } from "@/types/ai";
 import { useChatContext } from "@/context/ChatContext";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import { ModelPicker } from "@/components/ModelPicker";
 import { MoreHorizontal } from "lucide-react";
 
 interface MessageListProps {
@@ -26,20 +26,22 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
   const { forkThreadFromMessages, sendDeepDiveMessage, runVoteInThread, runDebateInThread, activeProviders, availableProviders } = useChatContext();
 
   const [askDialog, setAskDialog] = useState<{ open: boolean; msgIndex: number } | null>(null);
-  const [askTarget, setAskTarget] = useState<AIProvider>(availableProviders[0] ?? "gpt");
+  const [askTarget, setAskTarget] = useState<AIProvider>(availableProviders[0] ?? "nemotron");
   const [debateDialog, setDebateDialog] = useState<{ open: boolean; msgIndex: number } | null>(null);
-  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(availableProviders.length ? availableProviders : ["gpt"]);
+  const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(
+    availableProviders.length ? availableProviders : ((Object.keys(AI_MODELS) as AIProvider[]).slice(0, 1) || ["nemotron"]),
+  );
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
   const defaultOther = (provider?: AIProvider) => {
-    const order = availableProviders.length ? availableProviders : (["gpt", "gemini", "claude"] as AIProvider[]);
-    if (!provider) return order[0] ?? "gpt";
+    const order = availableProviders.length ? availableProviders : (Object.keys(AI_MODELS) as AIProvider[]);
+    if (!provider) return order[0] ?? "nemotron";
     const idx = order.indexOf(provider);
-    if (idx === -1) return order[0] ?? "gpt";
-    return order[(idx + 1) % order.length] ?? (order[0] ?? "gpt");
+    if (idx === -1) return order[0] ?? "nemotron";
+    return order[(idx + 1) % order.length] ?? (order[0] ?? "nemotron");
   };
 
   useEffect(() => {
@@ -74,8 +76,7 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
     });
     setAskDialog(null);
     navigateToDive(deepDiveId);
-    const mention = askTarget === "gemini" ? "llama" : askTarget === "claude" ? "nemotron" : "gpt";
-    sendDeepDiveMessage(deepDiveId, threadId, `@${mention} Please respond to the context above.`);
+    sendDeepDiveMessage(deepDiveId, threadId, `@${askTarget} Please respond to the context above.`);
   };
 
   const onVote = (idx: number) => {
@@ -91,19 +92,15 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
   };
 
   const onDebate = (idx: number) => {
-    setDebateParticipants(activeProviders.length ? activeProviders : (["gpt", "gemini", "claude"] as AIProvider[]));
+    setDebateParticipants(activeProviders.length ? activeProviders : availableProviders);
     setDebateDialog({ open: true, msgIndex: idx });
-  };
-
-  const toggleDebater = (p: AIProvider) => {
-    setDebateParticipants(prev => (prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]));
   };
 
   const confirmDebate = () => {
     if (!debateDialog) return;
     const seedMessages = seedUpTo(debateDialog.msgIndex);
     const subject = (seedMessages[seedMessages.length - 1]?.content ?? "").split("\n")[0]?.trim() ?? "";
-    const participants = debateParticipants.length ? debateParticipants : (["gpt", "gemini", "claude"] as AIProvider[]);
+    const participants = debateParticipants.length ? debateParticipants : availableProviders;
     const { deepDiveId, threadId } = forkThreadFromMessages({
       type: "teamwork",
       title: `Debate: ${subject.slice(0, 60)}`,
@@ -147,18 +144,23 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
       <div ref={endRef} />
 
       <Dialog open={!!askDialog?.open} onOpenChange={(o) => !o && setAskDialog(null)}>
-        <DialogContent>
+        <DialogContent className="border-border/50 bg-card sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Ask another AI</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
-            {availableProviders.map(p => (
-              <label key={p} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 cursor-pointer hover:bg-accent transition-colors">
-                <Checkbox checked={askTarget === p} onCheckedChange={() => setAskTarget(p)} />
-                <div className="text-sm font-medium text-foreground">{AI_MODELS[p].name}</div>
-                <div className="text-xs text-muted-foreground truncate">{AI_MODELS[p].fullName}</div>
-              </label>
-            ))}
+          <div className="h-[min(420px,calc(100vh-14rem))] min-h-[260px]">
+            <ModelPicker
+              providers={availableProviders}
+              orderProviders={availableProviders}
+              selectedProviders={askTarget ? [askTarget] : []}
+              onSelectedProvidersChange={(next) => {
+                const target = next[0];
+                if (target) setAskTarget(target);
+              }}
+              multiple={false}
+              getModel={(p) => AI_MODELS[p]}
+              showCategories={false}
+            />
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setAskDialog(null)}>
@@ -172,18 +174,20 @@ export function MessageList({ messages, isTyping, showProviderBadge }: MessageLi
       </Dialog>
 
       <Dialog open={!!debateDialog?.open} onOpenChange={(o) => !o && setDebateDialog(null)}>
-        <DialogContent>
+        <DialogContent className="border-border/50 bg-card sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Start a debate</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
-            {availableProviders.map(p => (
-              <label key={p} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 cursor-pointer hover:bg-accent transition-colors">
-                <Checkbox checked={debateParticipants.includes(p)} onCheckedChange={() => toggleDebater(p)} />
-                <div className="text-sm font-medium text-foreground">{AI_MODELS[p].name}</div>
-                <div className="text-xs text-muted-foreground truncate">{AI_MODELS[p].fullName}</div>
-              </label>
-            ))}
+          <div className="h-[min(420px,calc(100vh-14rem))] min-h-[260px]">
+            <ModelPicker
+              providers={availableProviders}
+              orderProviders={availableProviders}
+              selectedProviders={debateParticipants}
+              onSelectedProvidersChange={setDebateParticipants}
+              multiple
+              getModel={(p) => AI_MODELS[p]}
+              showCategories={false}
+            />
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDebateDialog(null)}>

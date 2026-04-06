@@ -1,7 +1,20 @@
 import type { UIMessage } from "ai";
 import type { AIProvider } from "../types/ai";
 
-export const DEEP_DIVE_PROVIDERS: AIProvider[] = ["gpt", "gemini", "claude"];
+export const DEEP_DIVE_PROVIDERS: AIProvider[] = [
+  "nemotron",
+  "free-autorouter",
+  "dolphin",
+  "qwen-coder",
+  "glm-air",
+  "trinity-mini",
+  "qwen-plus",
+  "step-flash",
+  "gemini-3-flash",
+  "gemini-2-flash",
+  "deepseek-chat",
+  "deepseek-reasoner",
+];
 
 export type DeepDiveRole = "owner" | "editor" | "commenter" | "viewer";
 
@@ -11,6 +24,8 @@ export type DeepDiveMessageMetadata = {
   model?: string;
   routingNote?: string;
   totalTokens?: number;
+  reasoningTokens?: number;
+  done?: boolean;
   author?: {
     userId: string;
     name?: string;

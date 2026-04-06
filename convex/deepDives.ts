@@ -1,5 +1,6 @@
-import { mutation, query, internalMutation, internalQuery, QueryCtx, MutationCtx } from "./_generated/server";
+import { action, mutation, query, internalMutation, internalQuery, QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { AIProvider } from "../src/types/ai";
 import type {
   DeepDiveRecord,
@@ -14,7 +15,20 @@ import type {
 } from "../src/lib/deep-dive-types";
 import type { Doc, Id } from "./_generated/dataModel";
 
-const PROVIDERS = ["gpt", "gemini", "claude"] as const satisfies readonly AIProvider[];
+const PROVIDERS = [
+  "nemotron",
+  "free-autorouter",
+  "dolphin",
+  "qwen-coder",
+  "glm-air",
+  "trinity-mini",
+  "qwen-plus",
+  "step-flash",
+  "gemini-3-flash",
+  "gemini-2-flash",
+  "deepseek-chat",
+  "deepseek-reasoner",
+] as const satisfies readonly AIProvider[];
 
 const ROLE_RANK: Record<DeepDiveRole, number> = {
   owner: 3,
@@ -95,11 +109,20 @@ function requireRole(role: DeepDiveRole | null, allowed: DeepDiveRole[]) {
 
 function normalizeProviders(providers?: string[]) {
   const allowed = new Set<string>(PROVIDERS);
-  const next = (providers ?? [])
-    .filter((p): p is string => typeof p === "string" && p.length > 0)
-    .filter((p): p is AIProvider => allowed.has(p))
+  const mapped = (providers ?? [])
+    .filter(Boolean)
+    .map((provider) => {
+      const raw = provider.trim();
+      const lower = raw.toLowerCase();
+      if (allowed.has(raw)) return raw;
+      if (lower === "claude") return "nemotron";
+      if (lower === "autorouter" || lower === "free autorouter" || lower === "openrouter/free") return "free-autorouter";
+      return null;
+    })
+    .filter((provider): provider is string => Boolean(provider))
     .filter((provider, index, items) => items.indexOf(provider) === index);
-  return next.length ? next : [...PROVIDERS];
+
+  return (mapped.length ? mapped : [...PROVIDERS]) as AIProvider[];
 }
 
 function truncateTitle(value: string) {
@@ -117,6 +140,48 @@ function firstTextPart(message: DeepDiveUIMessage | undefined) {
   return "";
 }
 
+function normalizeProviderId(provider: unknown): AIProvider | undefined {
+  if (typeof provider !== "string") return undefined;
+  const raw = provider.trim();
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  if (lower === "claude") return "nemotron";
+  if (lower === "autorouter" || lower === "free autorouter" || lower === "openrouter/free") return "free-autorouter";
+  if ((PROVIDERS as readonly string[]).includes(raw)) return raw as AIProvider;
+  return undefined;
+}
+
+function rowToThreadMessage(row: Doc<"threadMessages">): DeepDiveUIMessage | null {
+  if (row.message) return row.message as DeepDiveUIMessage;
+  const extra = row as unknown as Record<string, unknown>;
+  const text = typeof extra.text === "string" ? extra.text : "";
+  const role = typeof extra.role === "string" ? extra.role : "assistant";
+  const createdAt = row.createdAt;
+  if (!text.trim()) return null;
+  const authorUserId = typeof extra.authorUserId === "string" ? extra.authorUserId : undefined;
+  const authorName = typeof extra.authorName === "string" ? extra.authorName : undefined;
+  const authorEmail = typeof extra.authorEmail === "string" ? extra.authorEmail : undefined;
+  const authorImage = typeof extra.authorImage === "string" ? extra.authorImage : undefined;
+  return {
+    id: (row.messageId ?? `${row._id}`) as string,
+    role: role === "user" || role === "system" || role === "assistant" ? role : "assistant",
+    metadata: {
+      createdAt,
+      provider: normalizeProviderId(extra.provider),
+      model: typeof extra.model === "string" ? extra.model : undefined,
+      author: authorUserId
+        ? {
+            userId: authorUserId,
+            name: authorName,
+            email: authorEmail,
+            image: authorImage,
+          }
+        : undefined,
+    },
+    parts: [{ type: "text", text }],
+  } satisfies DeepDiveUIMessage;
+}
+
 function rowToThread(row: Doc<"threads">): DeepDiveThreadRecord {
   return {
     id: row._id,
@@ -124,7 +189,7 @@ function rowToThread(row: Doc<"threads">): DeepDiveThreadRecord {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     type: row.type,
-    messages: (row.messages ?? []) as DeepDiveUIMessage[],
+    messages: [],
     voteResults: row.voteResults as VoteResult[] | undefined,
     teamworkMessages: row.teamworkMessages as TeamworkMessage[] | undefined,
   };
@@ -223,6 +288,39 @@ export const get = query({
   },
 });
 
+export const getThread = query({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args): Promise<DeepDiveThreadRecord | null> => {
+    const userId = await getExistingUserId(ctx);
+    if (!userId) return null;
+
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) return null;
+
+    const role = await getRoleForUser(ctx, { deepDiveId: thread.deepDiveId, userId });
+    if (!role) return null;
+
+    const messageRows = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_createdAt", (q) => q.eq("threadId", args.threadId))
+      .collect();
+    const messages = messageRows.length
+      ? (messageRows.map((row) => rowToThreadMessage(row)).filter(Boolean) as DeepDiveUIMessage[])
+      : ((thread.messages ?? []) as DeepDiveUIMessage[]);
+
+    return {
+      id: thread._id,
+      title: thread.title,
+      createdAt: thread.createdAt,
+      updatedAt: thread.updatedAt,
+      type: thread.type,
+      messages,
+      voteResults: thread.voteResults as VoteResult[] | undefined,
+      teamworkMessages: thread.teamworkMessages as TeamworkMessage[] | undefined,
+    };
+  },
+});
+
 export const createDeepDive = mutation({
   args: {
     title: v.optional(v.string()),
@@ -276,10 +374,28 @@ export const createThread = mutation({
       deepDiveId: args.deepDiveId,
       title: args.title?.trim() || "New thread",
       type: args.type ?? "chat",
-      messages: (args.seedMessages ?? []) as DeepDiveUIMessage[],
+      messages: [],
       createdAt: timestamp,
       updatedAt: timestamp,
     });
+
+    const seed = (args.seedMessages ?? []) as DeepDiveUIMessage[];
+    for (const raw of seed) {
+      const message = raw as DeepDiveUIMessage;
+      const messageId = typeof message.id === "string" && message.id ? message.id : `msg-${timestamp}-${Math.random().toString(16).slice(2)}`;
+      const createdAt =
+        typeof message.metadata?.createdAt === "number" && Number.isFinite(message.metadata.createdAt)
+          ? message.metadata.createdAt
+          : timestamp;
+      await ctx.db.insert("threadMessages", {
+        deepDiveId: args.deepDiveId,
+        threadId,
+        messageId,
+        message: { ...message, id: messageId } satisfies DeepDiveUIMessage,
+        createdAt,
+        updatedAt: createdAt,
+      });
+    }
 
     await ctx.db.patch(args.deepDiveId, { updatedAt: timestamp });
     return threadId;
@@ -352,6 +468,14 @@ export const deleteThread = mutation({
       throw new Error("Projects must keep at least one thread");
     }
 
+    const messages = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_createdAt", (q) => q.eq("threadId", args.threadId))
+      .collect();
+    for (const message of messages) {
+      await ctx.db.delete(message._id);
+    }
+
     await ctx.db.delete(args.threadId);
     await ctx.db.patch(thread.deepDiveId, { updatedAt: now() });
   },
@@ -403,6 +527,14 @@ export const deleteDeepDive = mutation({
     const role = await getRoleForUser(ctx, { deepDiveId: args.deepDiveId, userId });
     requireRole(role, ["owner"]);
 
+    const threadMessages = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_deepDiveId_and_createdAt", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+    for (const message of threadMessages) {
+      await ctx.db.delete(message._id);
+    }
+
     const threads = await ctx.db
       .query("threads")
       .withIndex("by_deepDiveId_updatedAt", (q) => q.eq("deepDiveId", args.deepDiveId))
@@ -447,6 +579,32 @@ export const deleteDeepDive = mutation({
   },
 });
 
+export const migrateLegacyThreadMessages = action({
+  args: { deepDiveId: v.id("deepDives") },
+  handler: async (ctx, args): Promise<{ ok: true; migratedThreads: number; migratedMessages: number }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { ok: true, migratedThreads: 0, migratedMessages: 0 };
+
+    const role = await ctx.runQuery(internal.deepDives.getRoleForTokenIdentifierInDeepDive, {
+      deepDiveId: args.deepDiveId,
+      tokenIdentifier: identity.tokenIdentifier,
+    });
+    if (!role || (role !== "owner" && role !== "editor" && role !== "commenter")) {
+      return { ok: true, migratedThreads: 0, migratedMessages: 0 };
+    }
+
+    const threadIds = await ctx.runQuery(internal.deepDives.listThreadIdsForDeepDive, { deepDiveId: args.deepDiveId });
+    let migratedThreads = 0;
+    let migratedMessages = 0;
+    for (const threadId of threadIds) {
+      const result = await ctx.runMutation(internal.deepDives.migrateThreadLegacyMessages, { threadId });
+      if (result.migrated) migratedThreads += 1;
+      migratedMessages += result.migratedMessages;
+    }
+    return { ok: true, migratedThreads, migratedMessages };
+  },
+});
+
 export const appendUserMessage = mutation({
   args: {
     threadId: v.id("threads"),
@@ -466,37 +624,66 @@ export const appendUserMessage = mutation({
     if (!trimmed) return;
 
     const user = await ctx.db.get(userId);
-    const authorName = (user?.name || user?.email || "Human").toString();
 
     const timestamp = now();
-    const nextMessages = [
-      ...(thread.messages ?? []),
-      {
-        id: `msg-${timestamp}-user`,
-        role: "user",
-        metadata: {
-          author: {
-            userId,
-            name: user?.name,
-            email: user?.email,
-            image: user?.image,
-          },
-          replyTo: args.replyToMessageId
-            ? {
-                messageId: args.replyToMessageId,
-                excerpt: args.replyToExcerpt?.trim() || undefined,
-              }
-            : undefined,
-        },
-        parts: [{ type: "text", text: trimmed }],
-      },
-    ] as DeepDiveUIMessage[];
+    const hasNewMessages = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_createdAt", (q) => q.eq("threadId", args.threadId))
+      .first();
+    const legacy = (thread.messages ?? []) as DeepDiveUIMessage[];
+    if (!hasNewMessages && legacy.length) {
+      for (const [idx, raw] of legacy.entries()) {
+        const message = raw as DeepDiveUIMessage;
+        const messageId = typeof message.id === "string" && message.id ? message.id : `msg-${timestamp}-legacy-${idx}`;
+        const createdAt =
+          typeof message.metadata?.createdAt === "number" && Number.isFinite(message.metadata.createdAt)
+            ? message.metadata.createdAt
+            : timestamp + idx;
+        await ctx.db.insert("threadMessages", {
+          deepDiveId: thread.deepDiveId,
+          threadId: args.threadId,
+          messageId,
+          message: { ...message, id: messageId } satisfies DeepDiveUIMessage,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      }
+      await ctx.db.patch(args.threadId, { messages: [] });
+    }
 
-    const titleCandidate = firstTextPart(nextMessages.find((message) => message.role === "user"));
-    const nextTitle = titleCandidate ? truncateTitle(titleCandidate) : thread.title;
+    const messageId = `msg-${timestamp}-user`;
+    const message: DeepDiveUIMessage = {
+      id: messageId,
+      role: "user",
+      metadata: {
+        author: {
+          userId,
+          name: user?.name,
+          email: user?.email,
+          image: user?.image,
+        },
+        replyTo: args.replyToMessageId
+          ? {
+              messageId: args.replyToMessageId,
+              excerpt: args.replyToExcerpt?.trim() || undefined,
+            }
+          : undefined,
+      },
+      parts: [{ type: "text", text: trimmed }],
+    };
+    await ctx.db.insert("threadMessages", {
+      deepDiveId: thread.deepDiveId,
+      threadId: args.threadId,
+      messageId,
+      message,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const titleCandidate = truncateTitle(trimmed);
+    const nextTitle = titleCandidate ? titleCandidate : thread.title;
 
     await ctx.db.patch(args.threadId, {
-      messages: nextMessages,
       updatedAt: timestamp,
       title: thread.title === "New thread" || thread.title === "Thread 1" ? nextTitle : thread.title,
     });
@@ -925,13 +1112,93 @@ export const getRoleForTokenIdentifierInDeepDive = internalQuery({
   },
 });
 
+export const getThreadMessages = internalQuery({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args): Promise<DeepDiveUIMessage[]> => {
+    const rows = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_createdAt", (q) => q.eq("threadId", args.threadId))
+      .collect();
+    return rows.map((row) => rowToThreadMessage(row)).filter(Boolean) as DeepDiveUIMessage[];
+  },
+});
+
 export const getThreadContext = internalQuery({
   args: { threadId: v.id("threads") },
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
     if (!thread) return null;
     const deepDive = await ctx.db.get(thread.deepDiveId);
-    return { thread, deepDive };
+    const threadMessages = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_createdAt", (q) => q.eq("threadId", args.threadId))
+      .collect();
+    const messages = threadMessages.length
+      ? (threadMessages.map((row) => rowToThreadMessage(row)).filter(Boolean) as DeepDiveUIMessage[])
+      : ((thread.messages ?? []) as DeepDiveUIMessage[]);
+    return { thread, deepDive, messages };
+  },
+});
+
+export const listThreadIdsForDeepDive = internalQuery({
+  args: { deepDiveId: v.id("deepDives") },
+  handler: async (ctx, args): Promise<Array<Id<"threads">>> => {
+    const threads = await ctx.db
+      .query("threads")
+      .withIndex("by_deepDiveId_updatedAt", (q) => q.eq("deepDiveId", args.deepDiveId))
+      .collect();
+    return threads.map((thread) => thread._id);
+  },
+});
+
+export const migrateThreadLegacyMessages = internalMutation({
+  args: { threadId: v.id("threads") },
+  handler: async (ctx, args): Promise<{ migrated: boolean; migratedMessages: number }> => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) return { migrated: false, migratedMessages: 0 };
+
+    const hasNewMessages = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_createdAt", (q) => q.eq("threadId", args.threadId))
+      .first();
+    if (hasNewMessages) {
+      if ((thread.messages ?? []).length > 0) {
+        await ctx.db.patch(args.threadId, { messages: [] });
+      }
+      return { migrated: false, migratedMessages: 0 };
+    }
+
+    const legacy = (thread.messages ?? []) as DeepDiveUIMessage[];
+    if (!legacy.length) return { migrated: false, migratedMessages: 0 };
+
+    const timestamp = now();
+    const used = new Set<string>();
+    let migratedMessages = 0;
+
+    for (const [idx, raw] of legacy.entries()) {
+      const message = raw as DeepDiveUIMessage;
+      let messageId = typeof message.id === "string" && message.id ? message.id : `msg-${timestamp}-legacy-${idx}`;
+      while (used.has(messageId)) {
+        messageId = `${messageId}-${idx}`;
+      }
+      used.add(messageId);
+      const createdAt =
+        typeof message.metadata?.createdAt === "number" && Number.isFinite(message.metadata.createdAt)
+          ? message.metadata.createdAt
+          : thread.createdAt + idx;
+      await ctx.db.insert("threadMessages", {
+        deepDiveId: thread.deepDiveId,
+        threadId: args.threadId,
+        messageId,
+        message: { ...message, id: messageId } satisfies DeepDiveUIMessage,
+        createdAt,
+        updatedAt: createdAt,
+      });
+      migratedMessages += 1;
+    }
+
+    await ctx.db.patch(args.threadId, { messages: [] });
+    return { migrated: true, migratedMessages };
   },
 });
 
@@ -948,26 +1215,116 @@ export const appendAssistantMessage = internalMutation({
     if (!thread) throw new Error("Thread not found");
 
     const timestamp = now();
-    const nextMessages = [
-      ...(thread.messages ?? []),
-      {
+    await ctx.db.insert("threadMessages", {
+      deepDiveId: thread.deepDiveId,
+      threadId: args.threadId,
+      messageId: `msg-${timestamp}-assistant`,
+      message: {
         id: `msg-${timestamp}-assistant`,
         role: "assistant",
         metadata: {
           createdAt: timestamp,
-          provider: args.provider,
+          provider: args.provider as AIProvider,
           model: args.model,
           routingNote: args.routingNote,
         },
         parts: [{ type: "text", text: args.text }],
-      },
-    ] as DeepDiveUIMessage[];
-
-    await ctx.db.patch(args.threadId, {
-      messages: nextMessages,
+      } satisfies DeepDiveUIMessage,
+      createdAt: timestamp,
       updatedAt: timestamp,
     });
+
+    await ctx.db.patch(args.threadId, { updatedAt: timestamp });
     await ctx.db.patch(thread.deepDiveId, { updatedAt: timestamp });
+  },
+});
+
+export const createAssistantDraft = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    messageId: v.string(),
+    provider: v.string(),
+    model: v.string(),
+    routingNote: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) throw new Error("Thread not found");
+
+    const timestamp = now();
+    const existing = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_messageId", (q) => q.eq("threadId", args.threadId).eq("messageId", args.messageId))
+      .unique();
+    if (existing) return;
+
+    await ctx.db.insert("threadMessages", {
+      deepDiveId: thread.deepDiveId,
+      threadId: args.threadId,
+      messageId: args.messageId,
+      message: {
+        id: args.messageId,
+        role: "assistant",
+        metadata: {
+          createdAt: timestamp,
+          provider: args.provider as AIProvider,
+          model: args.model,
+          routingNote: args.routingNote,
+          done: false,
+        },
+        parts: [{ type: "text", text: "" }],
+      } satisfies DeepDiveUIMessage,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+  },
+});
+
+export const updateAssistantDraft = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    messageId: v.string(),
+    text: v.string(),
+    done: v.optional(v.boolean()),
+    provider: v.optional(v.string()),
+    model: v.optional(v.string()),
+    routingNote: v.optional(v.string()),
+    reasoningTokens: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) throw new Error("Thread not found");
+
+    const timestamp = now();
+    const row = await ctx.db
+      .query("threadMessages")
+      .withIndex("by_threadId_and_messageId", (q) => q.eq("threadId", args.threadId).eq("messageId", args.messageId))
+      .unique();
+    if (!row) return;
+
+    const target = row.message as DeepDiveUIMessage;
+    const nextMessage: DeepDiveUIMessage = {
+      ...target,
+      parts: [{ type: "text", text: args.text }],
+      metadata: {
+        ...(target.metadata ?? {}),
+        provider: args.provider ?? (target.metadata?.provider as string | undefined),
+        model: args.model ?? (target.metadata?.model as string | undefined),
+        routingNote: args.routingNote ?? (target.metadata?.routingNote as string | undefined),
+        reasoningTokens: args.reasoningTokens ?? (target.metadata?.reasoningTokens as number | undefined),
+        done: args.done ?? false,
+      } as DeepDiveUIMessage["metadata"],
+    };
+
+    await ctx.db.patch(row._id, {
+      message: nextMessage,
+      updatedAt: timestamp,
+    });
+
+    if (args.done) {
+      await ctx.db.patch(args.threadId, { updatedAt: timestamp });
+      await ctx.db.patch(thread.deepDiveId, { updatedAt: timestamp });
+    }
   },
 });
 

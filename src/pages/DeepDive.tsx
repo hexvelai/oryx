@@ -18,7 +18,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import { AI_MODELS } from "@/types/ai";
+import { AI_MODELS, getAIModel } from "@/types/ai";
 import type { AIProvider } from "@/types/ai";
 import { convexApi } from "@/lib/convex-api";
 import type { DeepDiveMember, DeepDiveRole, DeepDiveThreadRecord, DeepDiveUIMessage, HumanChatMessage } from "@/lib/deep-dive-types";
@@ -39,7 +39,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
@@ -48,6 +47,7 @@ import { Input } from "@/components/ui/input";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ModelPicker } from "@/components/ModelPicker";
 
 function startOfDay(ms: number) {
   const d = new Date(ms);
@@ -138,7 +138,23 @@ function isTypingTarget(target: EventTarget | null) {
   return Boolean(target.closest("[contenteditable='true']"));
 }
 
+function shouldSuggestVote(text: string) {
+  const normalized = text.toLowerCase().trim();
+  if (!normalized) return false;
+  const hasChoicePattern =
+    /\b\w+\s+or\s+\w+\b/.test(normalized) ||
+    normalized.includes("should i") ||
+    normalized.includes("which should") ||
+    normalized.includes("which one") ||
+    normalized.includes("choose between") ||
+    normalized.includes("pick between") ||
+    normalized.includes("best option");
+  const explicitMultiChoice = /(?:\b[a-d]\)|\b1\)|\b2\)|\b3\)|\b4\))/i.test(text);
+  return hasChoicePattern || explicitMultiChoice;
+}
+
 export default function DeepDive() {
+  type CouncilMode = "quick" | "balanced" | "thorough";
   const navigate = useNavigate();
   const { diveId } = useParams();
   const deepDive = useConvexQuery(convexApi.deepDives.get, diveId ? { diveId } : "skip");
@@ -155,10 +171,13 @@ export default function DeepDive() {
   const sendHumanChatMessage = useConvexMutation(convexApi.deepDives.sendHumanChatMessage);
   const deleteDeepDive = useConvexMutation(convexApi.deepDives.deleteDeepDive);
   const leaveDeepDive = useConvexMutation(convexApi.deepDives.leaveDeepDive);
+  const migrateLegacyThreadMessages = useAction(convexApi.deepDives.migrateLegacyThreadMessages);
 
   const [activeThreadId, setActiveThreadId] = useState<string>("");
   const [askDialog, setAskDialog] = useState<{ open: boolean; seed: DeepDiveUIMessage[]; target: AIProvider } | null>(null);
   const [debateDialog, setDebateDialog] = useState<{ open: boolean; seed: DeepDiveUIMessage[] } | null>(null);
+  const [voteDialog, setVoteDialog] = useState<{ open: boolean; seed: DeepDiveUIMessage[] } | null>(null);
+  const [councilMode, setCouncilMode] = useState<CouncilMode>("balanced");
   const [debateParticipants, setDebateParticipants] = useState<AIProvider[]>(DEEP_DIVE_PROVIDERS);
   const [creatingThread, setCreatingThread] = useState(false);
   const [runningVote, setRunningVote] = useState(false);
@@ -186,17 +205,41 @@ export default function DeepDive() {
   const [threadDeleteTarget, setThreadDeleteTarget] = useState<{ id: string; title: string } | null>(null);
   const [deletingThread, setDeletingThread] = useState(false);
   const [threadDeleteError, setThreadDeleteError] = useState<string | null>(null);
+  const [pendingVotePrompt, setPendingVotePrompt] = useState<{ visible: boolean; text: string } | null>(null);
   const [threadsOpen, setThreadsOpen] = usePersistedBoolean("oryx.deepDive.threads", false);
   const [notesOpen, setNotesOpen] = usePersistedBoolean("oryx.deepDive.notes", false);
 
+  const activeThreadIdResolved = useMemo(() => {
+    if (activeThreadId) return activeThreadId;
+    return deepDive?.threads[0]?.id ?? "";
+  }, [activeThreadId, deepDive?.threads]);
+
+  const activeThreadQuery = useConvexQuery(
+    convexApi.deepDives.getThread,
+    activeThreadIdResolved ? { threadId: activeThreadIdResolved } : "skip",
+  ) as DeepDiveThreadRecord | null | undefined;
+
   const activeThread = useMemo(() => {
+    if (activeThreadQuery !== undefined) return activeThreadQuery;
     if (!deepDive) return null;
-    if (activeThreadId) {
-      const match = deepDive.threads.find(thread => thread.id === activeThreadId);
+    if (activeThreadIdResolved) {
+      const match = deepDive.threads.find((thread) => thread.id === activeThreadIdResolved);
       if (match) return match;
     }
     return deepDive.threads[0] ?? null;
-  }, [activeThreadId, deepDive]);
+  }, [activeThreadIdResolved, activeThreadQuery, deepDive]);
+
+  useEffect(() => {
+    setPendingVotePrompt(null);
+  }, [activeThreadId, deepDive?.id]);
+
+  const migratedRef = useRef<Record<string, true>>({});
+  useEffect(() => {
+    if (!deepDive) return;
+    if (migratedRef.current[deepDive.id]) return;
+    migratedRef.current[deepDive.id] = true;
+    void migrateLegacyThreadMessages({ deepDiveId: deepDive.id });
+  }, [deepDive, migrateLegacyThreadMessages]);
 
   const isLoading = Boolean(diveId) && deepDive === undefined;
   const myRole = (deepDive?.myRole ?? "viewer") as DeepDiveRole;
@@ -362,8 +405,11 @@ export default function DeepDive() {
   };
 
   const replyToMessage = (message: DeepDiveUIMessage) => {
-    const provider = message.metadata?.provider as AIProvider | undefined;
-    const providerName = provider ? AI_MODELS[provider].name : "AI";
+    const provider = message.metadata?.provider as unknown;
+    const providerName =
+      typeof provider === "string"
+        ? ((AI_MODELS as Record<string, { name: string }>)[provider]?.name ?? "AI")
+        : "AI";
     const full = getMessageText(message);
     const excerpt = full.length > 240 ? `${full.slice(0, 239)}…` : full;
     setThreadReplyTo({
@@ -374,8 +420,11 @@ export default function DeepDive() {
   };
 
   const replyInHumanChat = (message: DeepDiveUIMessage) => {
-    const provider = message.metadata?.provider as AIProvider | undefined;
-    const providerName = provider ? AI_MODELS[provider].name : "AI";
+    const provider = message.metadata?.provider as unknown;
+    const providerName =
+      typeof provider === "string"
+        ? ((AI_MODELS as Record<string, { name: string }>)[provider]?.name ?? "AI")
+        : "AI";
     const full = getMessageText(message);
     const excerpt = full.length > 240 ? `${full.slice(0, 239)}…` : full;
     setHumanReplyTo({
@@ -396,10 +445,10 @@ export default function DeepDive() {
 
   const participantOrder = deepDive.providers.length ? deepDive.providers : [...DEEP_DIVE_PROVIDERS];
   const defaultOther = (provider?: AIProvider) => {
-    if (!provider) return participantOrder[0] ?? "gpt";
+    if (!provider) return participantOrder[0] ?? "nemotron";
     const idx = participantOrder.indexOf(provider);
-    if (idx === -1) return participantOrder[0] ?? "gpt";
-    return participantOrder[(idx + 1) % participantOrder.length] ?? (participantOrder[0] ?? "gpt");
+    if (idx === -1) return participantOrder[0] ?? "nemotron";
+    return participantOrder[(idx + 1) % participantOrder.length] ?? (participantOrder[0] ?? "nemotron");
   };
 
   const newThread = async () => {
@@ -469,7 +518,7 @@ export default function DeepDive() {
       const threadId = await createThread({
         deepDiveId: deepDive.id,
         type: "chat",
-        title: `Ask ${AI_MODELS[askDialog.target].name}: ${truncateOneLine(getMessageText(askDialog.seed[askDialog.seed.length - 1] ?? { parts: [] } as DeepDiveUIMessage))}`,
+        title: `Ask ${getAIModel(askDialog.target)?.name ?? "AI"}: ${truncateOneLine(getMessageText(askDialog.seed[askDialog.seed.length - 1] ?? { parts: [] } as DeepDiveUIMessage))}`,
         seedMessages: askDialog.seed,
       });
       setActiveThreadId(String(threadId));
@@ -480,6 +529,12 @@ export default function DeepDive() {
   };
 
   const callVote = async (seedMessages: DeepDiveUIMessage[]) => {
+    setVoteDialog({ open: true, seed: seedMessages });
+  };
+
+  const confirmVote = async () => {
+    if (!voteDialog) return;
+    const seedMessages = voteDialog.seed;
     const subject = truncateOneLine(getMessageText(seedMessages[seedMessages.length - 1] ?? { parts: [] } as DeepDiveUIMessage), 60);
     setCreatingThread(true);
     try {
@@ -490,12 +545,28 @@ export default function DeepDive() {
         seedMessages,
       });
       setActiveThreadId(String(threadId));
+      setVoteDialog(null);
       setRunningVote(true);
-      await runVote({
-        threadId: String(threadId),
-        prompt: subject,
-        participants: deepDive.providers,
-      });
+      try {
+        const timeoutMs = 45_000;
+        await Promise.race([
+          runVote({
+            threadId: String(threadId),
+            prompt: subject,
+            participants: deepDive.providers,
+            mode: councilMode,
+          }),
+          new Promise((_, reject) => {
+            window.setTimeout(() => reject(new Error("Vote timed out. Results may still arrive.")), timeoutMs);
+          }),
+        ]);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Failed to run vote";
+        setChatError(msg);
+        if (msg.includes("API key") || msg.includes("AI Settings")) {
+          window.dispatchEvent(new Event("oryx:open-ai-settings"));
+        }
+      }
     } finally {
       setCreatingThread(false);
       setRunningVote(false);
@@ -505,10 +576,6 @@ export default function DeepDive() {
   const startDebate = (seedMessages: DeepDiveUIMessage[]) => {
     setDebateParticipants(participantOrder);
     setDebateDialog({ open: true, seed: seedMessages });
-  };
-
-  const toggleDebater = (provider: AIProvider) => {
-    setDebateParticipants(prev => (prev.includes(provider) ? prev.filter(x => x !== provider) : [...prev, provider]));
   };
 
   const confirmDebate = async () => {
@@ -526,11 +593,26 @@ export default function DeepDive() {
       setActiveThreadId(String(threadId));
       setDebateDialog(null);
       setRunningDebate(true);
-      await runDebate({
-        threadId: String(threadId),
-        prompt: subject,
-        participants,
-      });
+      try {
+        const timeoutMs = 45_000;
+        await Promise.race([
+          runDebate({
+            threadId: String(threadId),
+            prompt: subject,
+            participants,
+            mode: councilMode,
+          }),
+          new Promise((_, reject) => {
+            window.setTimeout(() => reject(new Error("Debate timed out. Results may still arrive.")), timeoutMs);
+          }),
+        ]);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Failed to run debate";
+        setChatError(msg);
+        if (msg.includes("API key") || msg.includes("AI Settings")) {
+          window.dispatchEvent(new Event("oryx:open-ai-settings"));
+        }
+      }
     } finally {
       setCreatingThread(false);
       setRunningDebate(false);
@@ -545,6 +627,11 @@ export default function DeepDive() {
 
     setChatError(null);
     setSendingMessage(true);
+    if (activeThread.type === "chat" && canEdit && shouldSuggestVote(trimmed)) {
+      setPendingVotePrompt({ visible: true, text: "This looks like a decision prompt. Call a vote?" });
+    } else {
+      setPendingVotePrompt(null);
+    }
     try {
       await appendUserMessage({
         threadId: activeThread.id,
@@ -555,7 +642,11 @@ export default function DeepDive() {
       await sendThreadMessage({ threadId: activeThread.id });
       setThreadReplyTo(null);
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : "Failed to send message");
+      const msg = error instanceof Error ? error.message : "Failed to send message";
+      setChatError(msg);
+      if (msg.includes("Missing OpenRouter API key") || msg.includes("Missing Gemini API key")) {
+        window.dispatchEvent(new Event("oryx:open-ai-settings"));
+      }
     } finally {
       setSendingMessage(false);
     }
@@ -566,6 +657,42 @@ export default function DeepDive() {
   const voteResults = activeThread?.voteResults ?? [];
   const teamworkMessages = activeThread?.teamworkMessages ?? [];
   const voteWinner = voteResults.length ? [...voteResults].sort((a, b) => b.votes.length - a.votes.length)[0] : null;
+  const panelThread: DeepDiveThreadRecord | null = (() => {
+    if (!activeThread) return null;
+    if (activeThread.type === "vote") {
+      const voteMessages: DeepDiveUIMessage[] = voteResults.map((result) => ({
+        id: `vote-${activeThread.id}-${result.provider}`,
+        role: "assistant",
+        metadata: {
+          provider: result.provider,
+          createdAt: Date.now(),
+          routingNote: result.votes.length
+            ? `${result.votes.length} vote(s)${voteWinner?.provider === result.provider ? " • Leading choice" : ""}`
+            : undefined,
+        },
+        parts: [
+          {
+            type: "text",
+            text: `${result.response}${result.reasoning ? `\n\n_Reasoning: ${result.reasoning}_` : ""}`,
+          },
+        ],
+      })) as DeepDiveUIMessage[];
+      return { ...activeThread, messages: [...contextMessages, ...voteMessages] };
+    }
+    if (activeThread.type === "teamwork") {
+      const debateMessages: DeepDiveUIMessage[] = teamworkMessages.map((message) => ({
+        id: message.id,
+        role: "assistant",
+        metadata: {
+          provider: message.from,
+          createdAt: message.timestamp,
+        },
+        parts: [{ type: "text", text: message.content }],
+      })) as DeepDiveUIMessage[];
+      return { ...activeThread, messages: [...contextMessages, ...debateMessages] };
+    }
+    return activeThread;
+  })();
   const threadCount = deepDive.threads.length;
 
   return (
@@ -603,13 +730,16 @@ export default function DeepDive() {
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">{activeThread?.title ?? "Thread"}</p>
               </div>
               <div className="hidden shrink-0 items-center gap-1 lg:flex">
-                {deepDive.providers.map((provider) => (
-                  <span
-                    key={provider}
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}))` }}
-                  />
-                ))}
+                {deepDive.providers.map((provider) => {
+                  const model = getAIModel(provider);
+                  return (
+                    <span
+                      key={provider}
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: model ? `hsl(var(--${model.color}))` : "hsl(var(--muted-foreground))" }}
+                    />
+                  );
+                })}
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
@@ -788,266 +918,38 @@ export default function DeepDive() {
         {/* Main content */}
         <section className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch overflow-hidden bg-background">
           <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-none flex-1 flex-col">
-            {!activeThread ? null : activeThread.type === "chat" ? (
+            {!panelThread ? null : (
               <ThreadChatPanel
-                key={activeThread.id}
-                thread={activeThread}
+                key={panelThread.id}
+                thread={panelThread}
                 defaultOther={defaultOther}
                 onAskOther={askOtherAI}
                 onVote={callVote}
                 onDebate={startDebate}
                 onSend={handleSendMessage}
-                isSending={sendingMessage}
+                isSending={activeThread?.type === "chat" ? sendingMessage : (activeThread?.type === "vote" ? runningVote : runningDebate)}
                 errorMessage={chatError}
-                canSend={canChat}
+                canSend={canChat && activeThread?.type === "chat"}
                 canUseTools={canEdit}
                 onReplyToMessage={replyToMessage}
                 onReplyInHumanChat={replyInHumanChat}
                 replyTo={threadReplyTo ? { messageId: threadReplyTo.messageId, label: threadReplyTo.label } : null}
                 onCancelReply={() => setThreadReplyTo(null)}
+                votePrompt={
+                  pendingVotePrompt?.visible && activeThread?.type === "chat"
+                    ? {
+                        visible: true,
+                        text: pendingVotePrompt.text,
+                        onCallVote: () => {
+                          if (!activeThread) return;
+                          void callVote(activeThread.messages);
+                          setPendingVotePrompt(null);
+                        },
+                        onDismiss: () => setPendingVotePrompt(null),
+                      }
+                    : undefined
+                }
               />
-            ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-4 py-6 sm:px-6">
-                <div className="mx-auto max-w-3xl">
-                {activeThread.type === "vote" && (
-                  <div className="space-y-6">
-                    {contextMessages.length > 0 && (
-                      <section className="rounded-xl border border-border/40 p-4">
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Scale className="h-3.5 w-3.5" />
-                          <span className="uppercase tracking-widest">Context snapshot</span>
-                        </div>
-                        <div className="mt-4 space-y-3">
-                          {contextMessages.map((message) => {
-                            const provider = message.metadata?.provider as AIProvider | undefined;
-                            const model = provider ? AI_MODELS[provider] : null;
-                            const text = getMessageText(message);
-                            const isUser = message.role === "user";
-                            return (
-                              <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                                <div className="max-w-[88%]">
-                                  {!isUser && model && (
-                                    <div className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
-                                      <span className="font-medium">{model.name}</span>
-                                    </div>
-                                  )}
-                                  <div className={cn(
-                                    "rounded-xl px-4 py-3 text-sm leading-relaxed",
-                                    isUser ? "bg-[hsl(var(--user-bubble))]" : "bg-accent/50"
-                                  )}>
-                                    {renderMarkdown(text)}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </section>
-                    )}
-
-                    <section className="space-y-3">
-                      {voteResults.length === 0 && (
-                        <div className="rounded-xl border border-dashed border-border/50 px-6 py-10 text-center text-sm text-muted-foreground">
-                          {runningVote ? "Gathering proposals and votes..." : "No vote results yet."}
-                        </div>
-                      )}
-
-                      {voteResults.map(result => {
-                        const model = AI_MODELS[result.provider];
-                        const isWinner = voteWinner?.provider === result.provider;
-                        const seed: DeepDiveUIMessage[] = [
-                          ...contextMessages,
-                          {
-                            id: `vote-${activeThread.id}-${result.provider}`,
-                            role: "assistant",
-                            metadata: { provider: result.provider, createdAt: Date.now() },
-                            parts: [{ type: "text", text: result.response }],
-                          },
-                        ];
-
-                        return (
-                          <div
-                            key={result.provider}
-                            className={cn(
-                              "group relative rounded-xl border p-5",
-                              isWinner ? "border-primary/30 bg-primary/5" : "border-border/40 bg-card"
-                            )}
-                          >
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="absolute right-3 top-3 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
-                                  aria-label="Message actions"
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-48 p-1" align="end">
-                                <Button variant="ghost" size="sm" onClick={() => askOtherAI(seed, result.provider)} className="w-full justify-start text-xs">
-                                  Ask {AI_MODELS[defaultOther(result.provider)].name}
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={() => callVote(seed)} className="w-full justify-start text-xs">
-                                  Call a vote
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={() => startDebate(seed)} className="w-full justify-start text-xs">
-                                  Start a debate
-                                </Button>
-                              </PopoverContent>
-                            </Popover>
-
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="flex h-9 w-9 items-center justify-center rounded-lg text-xs font-semibold"
-                                style={{ backgroundColor: `hsl(var(--${model.color}) / 0.12)`, color: `hsl(var(--${model.color}))` }}
-                              >
-                                {model.name.slice(0, 1)}
-                              </div>
-                              <div className="flex-1">
-                                <p className="text-sm font-medium text-foreground">{model.name}</p>
-                                <p className="text-xs text-muted-foreground">{result.votes.length} votes</p>
-                              </div>
-                              {isWinner && (
-                                <Badge className="bg-primary/15 text-primary border-0 text-xs">Leading</Badge>
-                              )}
-                            </div>
-
-                            <div className="mt-3 text-sm leading-relaxed text-foreground">{result.response}</div>
-
-                            {result.votes.length > 0 && (
-                              <div className="mt-3 flex flex-wrap gap-1.5">
-                                {result.votes.map(voter => (
-                                  <Badge
-                                    key={voter}
-                                    variant="secondary"
-                                    className="border-0 bg-accent text-xs"
-                                    style={{ color: `hsl(var(--${AI_MODELS[voter].color}))` }}
-                                  >
-                                    {AI_MODELS[voter].name}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-
-                            {result.reasoning && (
-                              <p className="mt-3 text-xs italic text-muted-foreground">{result.reasoning}</p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </section>
-                  </div>
-                )}
-
-                {activeThread.type === "teamwork" && (
-                  <div className="space-y-6">
-                    {contextMessages.length > 0 && (
-                      <section className="rounded-xl border border-border/40 p-4">
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Users2 className="h-3.5 w-3.5" />
-                          <span className="uppercase tracking-widest">Context snapshot</span>
-                        </div>
-                        <div className="mt-4 space-y-3">
-                          {contextMessages.map(message => {
-                            const provider = message.metadata?.provider as AIProvider | undefined;
-                            const model = provider ? AI_MODELS[provider] : null;
-                            const text = getMessageText(message);
-                            const isUser = message.role === "user";
-                            return (
-                              <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                                <div className="max-w-[88%]">
-                                  {!isUser && model && (
-                                    <div className="mb-1.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: `hsl(var(--${model.color}))` }} />
-                                      <span className="font-medium">{model.name}</span>
-                                    </div>
-                                  )}
-                                  <div className={cn(
-                                    "rounded-xl px-4 py-3 text-sm leading-relaxed",
-                                    isUser ? "bg-[hsl(var(--user-bubble))]" : "bg-accent/50"
-                                  )}>
-                                    {renderMarkdown(text)}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </section>
-                    )}
-
-                    <section className="space-y-3">
-                      {teamworkMessages.length === 0 && (
-                        <div className="rounded-xl border border-dashed border-border/50 px-6 py-10 text-center text-sm text-muted-foreground">
-                          {runningDebate ? "The debate is underway..." : "No debate messages yet."}
-                        </div>
-                      )}
-
-                      {teamworkMessages.map((message, idx) => {
-                        const from = AI_MODELS[message.from];
-                        const toLabel = message.to === "all" ? "everyone" : AI_MODELS[message.to as AIProvider]?.name;
-                        const seed: DeepDiveUIMessage[] = [
-                          ...contextMessages,
-                          ...teamworkMessages.slice(0, idx + 1).map(item => ({
-                            id: item.id,
-                            role: "assistant" as const,
-                            metadata: { provider: item.from, createdAt: item.timestamp },
-                            parts: [{ type: "text", text: item.content }],
-                          })),
-                        ];
-
-                        return (
-                          <div key={message.id} className="group relative rounded-xl border border-border/40 bg-card p-5">
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="absolute right-3 top-3 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
-                                  aria-label="Message actions"
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-48 p-1" align="end">
-                                <Button variant="ghost" size="sm" onClick={() => askOtherAI(seed, message.from)} className="w-full justify-start text-xs">
-                                  Ask {AI_MODELS[defaultOther(message.from)].name}
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={() => callVote(seed)} className="w-full justify-start text-xs">
-                                  Call a vote
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={() => startDebate(seed)} className="w-full justify-start text-xs">
-                                  Start a debate
-                                </Button>
-                              </PopoverContent>
-                            </Popover>
-
-                            <div className="flex items-center gap-3">
-                              <div
-                                className="flex h-9 w-9 items-center justify-center rounded-lg text-xs font-semibold"
-                                style={{ backgroundColor: `hsl(var(--${from.color}) / 0.12)`, color: `hsl(var(--${from.color}))` }}
-                              >
-                                {from.name.slice(0, 1)}
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-foreground">{from.name}</p>
-                                <p className="text-xs text-muted-foreground">To {toLabel}</p>
-                              </div>
-                            </div>
-
-                            <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-                              {message.content}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </section>
-                  </div>
-                )}
-                </div>
-              </div>
             )}
           </div>
         </section>
@@ -1340,26 +1242,24 @@ export default function DeepDive() {
 
       {/* Ask another model */}
       <Dialog open={!!askDialog?.open} onOpenChange={(open) => !open && setAskDialog(null)}>
-        <DialogContent className="border-border/50 bg-card sm:max-w-md">
+        <DialogContent className="border-border/50 bg-card sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle className="font-display text-xl">Ask another model</DialogTitle>
           </DialogHeader>
-          <div className="space-y-1.5">
-            {participantOrder.map(provider => (
-              <label key={provider} className="flex items-center gap-3 rounded-xl border border-border/40 px-3 py-2.5 transition-colors hover:bg-accent/50 cursor-pointer">
-                <Checkbox checked={askDialog?.target === provider} onCheckedChange={() => askDialog && setAskDialog({ ...askDialog, target: provider })} />
-                <div
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold"
-                  style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}) / 0.12)`, color: `hsl(var(--${AI_MODELS[provider].color}))` }}
-                >
-                  {AI_MODELS[provider].name.slice(0, 1)}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">{AI_MODELS[provider].name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{AI_MODELS[provider].fullName}</p>
-                </div>
-              </label>
-            ))}
+          <div className="h-[min(420px,calc(100vh-14rem))] min-h-[260px]">
+            <ModelPicker
+              providers={participantOrder}
+              orderProviders={participantOrder}
+              selectedProviders={askDialog?.target ? [askDialog.target] : []}
+              onSelectedProvidersChange={(next) => {
+                const target = next[0];
+                if (!askDialog || !target) return;
+                setAskDialog({ ...askDialog, target });
+              }}
+              multiple={false}
+              getModel={(p) => getAIModel(p)}
+              showCategories={false}
+            />
           </div>
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setAskDialog(null)}>Cancel</Button>
@@ -1370,30 +1270,72 @@ export default function DeepDive() {
 
       {/* Debate */}
       <Dialog open={!!debateDialog?.open} onOpenChange={(open) => !open && setDebateDialog(null)}>
-        <DialogContent className="border-border/50 bg-card sm:max-w-md">
+        <DialogContent className="border-border/50 bg-card sm:max-w-3xl w-full">
           <DialogHeader>
             <DialogTitle className="font-display text-xl">Start a debate</DialogTitle>
           </DialogHeader>
-          <div className="space-y-1.5">
-            {participantOrder.map(provider => (
-              <label key={provider} className="flex items-center gap-3 rounded-xl border border-border/40 px-3 py-2.5 transition-colors hover:bg-accent/50 cursor-pointer">
-                <Checkbox checked={debateParticipants.includes(provider)} onCheckedChange={() => toggleDebater(provider)} />
-                <div
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold"
-                  style={{ backgroundColor: `hsl(var(--${AI_MODELS[provider].color}) / 0.12)`, color: `hsl(var(--${AI_MODELS[provider].color}))` }}
-                >
-                  {AI_MODELS[provider].name.slice(0, 1)}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">{AI_MODELS[provider].name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{AI_MODELS[provider].fullName}</p>
-                </div>
-              </label>
-            ))}
+          <div className="space-y-3">
+            <div className="pb-2">
+              <p className="mb-1 text-xs text-muted-foreground">Depth</p>
+              <Select value={councilMode} onValueChange={(v) => {
+                if (v === "quick" || v === "balanced" || v === "thorough") setCouncilMode(v);
+              }}>
+                <SelectTrigger className="h-8 w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="quick">Quick (faster)</SelectItem>
+                  <SelectItem value="balanced">Balanced</SelectItem>
+                  <SelectItem value="thorough">Thorough (slower)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="h-[min(360px,calc(100vh-18rem))] min-h-[240px]">
+              <ModelPicker
+                providers={participantOrder}
+                orderProviders={participantOrder}
+                selectedProviders={debateParticipants}
+                onSelectedProvidersChange={setDebateParticipants}
+                multiple
+                getModel={(p) => getAIModel(p)}
+                showCategories={false}
+              />
+            </div>
           </div>
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setDebateDialog(null)}>Cancel</Button>
             <Button onClick={confirmDebate} disabled={creatingThread || runningDebate}>Start</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Vote */}
+      <Dialog open={!!voteDialog?.open} onOpenChange={(open) => !open && setVoteDialog(null)}>
+        <DialogContent className="border-border/50 bg-card sm:max-w-lg w-full">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Call a vote</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">Depth</p>
+            <Select value={councilMode} onValueChange={(v) => {
+              if (v === "quick" || v === "balanced" || v === "thorough") setCouncilMode(v);
+            }}>
+              <SelectTrigger className="h-8 w-full text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="quick">Quick (faster)</SelectItem>
+                <SelectItem value="balanced">Balanced</SelectItem>
+                <SelectItem value="thorough">Thorough (slower)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Quick = fewer models and rounds. Thorough = more models plus fresh-eyes review.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setVoteDialog(null)}>Cancel</Button>
+            <Button onClick={confirmVote} disabled={creatingThread || runningVote}>Run vote</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
